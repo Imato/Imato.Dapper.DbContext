@@ -311,6 +311,39 @@ limit 1"
             await c.UpdateAsync(value);
         }
 
+        /// <summary>
+        /// Use for small tables only!
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        public async Task UpsertAsync<T>(IEnumerable<T> values)
+            where T : class, IDbObjectIdentity
+        {
+            if (values == null)
+            {
+                return;
+            }
+
+            using var c = Connection();
+            var all = await c.GetAllAsync<T>();
+            var exists = values.Where(x => all.Any(y => y.Id == x.Id));
+            if (exists.Any())
+            {
+                await c.UpdateAsync(exists);
+            }
+            var news = values.Where(x => !all.Any(y => y.Id == x.Id));
+            if (news.Any())
+            {
+                await c.InsertAsync(news);
+            }
+            var delete = all.Where(x => !values.Any(y => y.Id == x.Id));
+            if (delete.Any())
+            {
+                await c.DeleteAsync(delete);
+            }
+        }
+
         public async Task DeleteAsync<T>(T value) where T : class
         {
             using var c = Connection();
