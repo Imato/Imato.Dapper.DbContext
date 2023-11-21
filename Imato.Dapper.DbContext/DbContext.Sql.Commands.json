@@ -1,0 +1,22 @@
+[
+  {
+    "name": "IsMasterServer",
+    "contextVendor": "mssql",
+    "text": "select top 1 @@SERVERNAME from sys.tables"
+  },
+  {
+    "name": "IsMasterServer",
+    "contextVendor": "postgres",
+    "text": "create temp table tt_cmd (hostname text); copy tt_cmd from program 'hostname'; select * from tt_cmd; drop table tt_cmd; "
+  },
+  {
+    "name": "IsDbActive",
+    "contextVendor": "mssql",
+    "text": "declare @status bit = 0; select @status = cast(1 as bit) from sys.databases where name = @name and user_access_desc = 'MULTI_USER' and state_desc = 'ONLINE'; select @status;"
+  },
+  {
+    "name": "IsDbActive",
+    "contextVendor": "postgres",
+    "text": "select result from (select true as result from pg_database d where d.datname = @name union all select false) t order by 1 desc limit 1;"
+  }
+]

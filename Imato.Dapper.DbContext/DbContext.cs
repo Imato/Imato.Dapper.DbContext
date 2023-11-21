@@ -1,5 +1,6 @@
 ﻿using Dapper;
 using Dapper.Contrib.Extensions;
+using Imato.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MySql.Data.MySqlClient;
@@ -10,7 +11,9 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Data.SqlClient;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
@@ -35,46 +38,28 @@ namespace Imato.Dapper.DbContext
 
         protected virtual void AddCommands()
         {
-            ContextCommands.Add(new ContextCommand
-            {
-                Name = "IsMasterServer",
-                Text = "select top 1 @@SERVERNAME from sys.tables"
-            });
-            ContextCommands.Add(new ContextCommand
-            {
-                Name = "IsMasterServer",
-                ContextVendor = ContextVendors.postgres,
-                Text = @"
-create temp table tt_cmd (hostname text);
-copy tt_cmd from program 'hostname';
-select * from tt_cmd;
-drop table tt_cmd;"
-            });
+            LoadCommandsFrom("*.Sql.Commands.json");
+        }
 
-            ContextCommands.Add(new ContextCommand
+        protected void LoadCommandsFrom(string fileName)
+        {
+            foreach (var file in Directory.GetFiles(
+                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
+                    fileName,
+                    SearchOption.AllDirectories))
             {
-                Name = "IsDbActive",
-                Text = @"
-declare @status bit = 0;
-select @status = cast(1 as bit)
-	from sys.databases
-	where name = @name
-		and user_access_desc = 'MULTI_USER'
-		and state_desc = 'ONLINE'
-select @status"
-            });
-            ContextCommands.Add(new ContextCommand
-            {
-                Name = "IsDbActive",
-                ContextVendor = ContextVendors.postgres,
-                Text = @"
-select result
-from
-(select true as result from pg_database d where d.datname = @name
-union all select false) t
-order by 1 desc
-limit 1"
-            });
+                Logger.LogDebug($"Load sql commands from confgiguration file {file}");
+                var commands = File.ReadAllText(file)
+                    .Deserialize<IEnumerable<ContextCommand>>();
+
+                if (commands != null)
+                {
+                    foreach (var command in commands)
+                    {
+                        AddCommand(command);
+                    }
+                }
+            }
         }
 
         public string DbName()
@@ -137,12 +122,12 @@ limit 1"
                 ?? throw new KeyNotFoundException($"Not exists connection string {name}");
         }
 
-        protected ContextVendors Vendor(IDbConnection connection)
+        protected static ContextVendors Vendor(IDbConnection connection)
         {
             return Vendor(connection.ConnectionString);
         }
 
-        protected ContextVendors Vendor(string connectionString)
+        protected static ContextVendors Vendor(string connectionString)
         {
             if (connectionString.Contains("Initial Catalog"))
             {
@@ -156,8 +141,7 @@ limit 1"
             }
 
             if (connectionString.Contains("Server")
-                && connectionString.Contains("Database")
-                && connectionString.Contains("Uid"))
+                && connectionString.Contains("Database"))
             {
                 return ContextVendors.mysql;
             }
@@ -165,40 +149,64 @@ limit 1"
             throw new InvalidOperationException($"Unknown context vendor for string: {connectionString}");
         }
 
-        protected IDbConnection Create(string connectionString,
-            string dataBase = "")
+        protected string DbUser()
+        {
+            var name = Configuration
+                .GetSection("Environment:DbUser")
+                .Value;
+            return string.IsNullOrEmpty(name) ? ""
+                    : Environment.GetEnvironmentVariable(name);
+        }
+
+        protected string DbUserPassword()
+        {
+            var name = Configuration
+                .GetSection("Environment:DbUserPassword")
+                .Value;
+            return string.IsNullOrEmpty(name) ? ""
+                    : Environment.GetEnvironmentVariable(name);
+        }
+
+        public static IDbConnection Create(string connectionString,
+            string dataBase = "",
+            string user = "",
+            string password = "")
         {
             switch (Vendor(connectionString))
             {
                 case ContextVendors.mssql:
-                    if (dataBase != "")
-                    {
-                        var builder = new SqlConnectionStringBuilder(connectionString);
-                        builder.InitialCatalog = dataBase;
-                        connectionString = builder.ConnectionString;
-                    }
-                    return new SqlConnection(connectionString);
+                    var sb = new SqlConnectionStringBuilder(connectionString);
+                    sb.InitialCatalog = dataBase != "" ? dataBase : sb.InitialCatalog;
+                    sb.UserID = sb.UserID ?? user;
+                    sb.Password = sb.Password ?? password;
+                    return new SqlConnection(sb.ConnectionString);
 
                 case ContextVendors.postgres:
-                    if (dataBase != "")
-                    {
-                        var builder = new NpgsqlConnectionStringBuilder(connectionString);
-                        builder.Database = dataBase;
-                        connectionString = builder.ConnectionString;
-                    }
-                    return new NpgsqlConnection(connectionString);
+                    var nb = new NpgsqlConnectionStringBuilder(connectionString);
+                    nb.Database = dataBase != "" ? dataBase : nb.Database;
+                    nb.Username = nb.Username ?? user;
+                    nb.Password = nb.Password ?? password;
+                    return new NpgsqlConnection(nb.ConnectionString);
 
                 case ContextVendors.mysql:
-                    if (dataBase != "")
-                    {
-                        var builder = new MySqlConnectionStringBuilder(connectionString);
-                        builder.Database = dataBase;
-                        connectionString = builder.ConnectionString;
-                    }
-                    return new MySqlConnection(connectionString);
+                    var mb = new MySqlConnectionStringBuilder(connectionString);
+                    mb.Database = dataBase != "" ? dataBase : mb.Database;
+                    mb.UserID = mb.UserID ?? user;
+                    mb.Password = mb.Password ?? password;
+                    return new MySqlConnection(mb.ConnectionString);
             }
 
             throw new ArgumentOutOfRangeException($"Unknown vendor in connection string {connectionString}");
+        }
+
+        protected IDbConnection Create(string connectionString,
+            string dataBase = "")
+        {
+            var user = DbUser();
+            var password = DbUserPassword();
+            var cs = Create(connectionString, dataBase, user, password);
+            Logger.LogDebug($"Create connection: {cs.ConnectionString}");
+            return cs;
         }
 
         protected IDbConnection Connection(
@@ -239,43 +247,124 @@ limit 1"
                 throw new ArgumentOutOfRangeException($"Cannot find connection string for vendor {vendor}");
             }
 
-            return Create(cs);
+            return Create(cs, "", DbUser(), DbUserPassword());
         }
 
-        protected ContextCommand Command(string name)
+        public ContextCommand Command(string name)
         {
             var vendor = Vendor(ConnectionString());
             return ContextCommands
                 .Where(x => x.Name == name && x.ContextVendor == vendor)
-                .FirstOrDefault()
+                .FirstOrDefault();
+        }
+
+        public ContextCommand? CommandRequred(string name)
+        {
+            return Command(name)
                 ?? throw new ArgumentOutOfRangeException($"Cannot find context command {name}. Add it in AddCommands()");
         }
 
-        protected ContextCommand Command(string name, IDbConnection connection)
+        public ContextCommand? Command(string name, IDbConnection connection)
         {
             var vendor = Vendor(connection);
             return ContextCommands
                 .Where(x => x.Name == name && x.ContextVendor == vendor)
-                .FirstOrDefault()
+                .FirstOrDefault();
+        }
+
+        public ContextCommand CommandRequred(string name, IDbConnection connection)
+        {
+            return Command(name, connection)
                 ?? throw new ArgumentOutOfRangeException($"Cannot find context command {name}. Add it in AddCommands()");
+        }
+
+        public void AddCommand(ContextCommand command)
+        {
+            Logger.LogDebug($"Add command {command.ToJson()}");
+            var vendor = Vendor(ConnectionString());
+            var exits = ContextCommands.Find(x => x.ContextVendor == command.ContextVendor && x.Name == command.Name);
+            if (exits != null)
+            {
+                ContextCommands.Remove(exits);
+            }
+            ContextCommands.Add(command);
         }
 
         public bool IsMasterServer()
         {
             using (var connection = Connection())
             {
-                var command = Command("IsMasterServer", connection);
-                return connection.QueryFirst<string>(command.Text)
+                var command = CommandRequred("IsMasterServer", connection);
+                var sql = Format(command.Text);
+                return connection.QueryFirst<string>(sql)
                     .StartsWith(Environment.MachineName);
+            }
+        }
+
+        private string Format(string sql, object[]? parameters = null)
+        {
+            if (parameters != null
+                && sql.Contains("{")
+                && sql.Contains("}"))
+            {
+                sql = string.Format(sql, parameters);
+            }
+
+            Logger.LogDebug($"Using sql: {sql}");
+            return sql;
+        }
+
+        private string Format(string sql, object? parameters)
+        {
+            Logger.LogDebug($"Using sql: {sql}; parameters: {parameters?.ToJson() ?? null}");
+            return sql;
+        }
+
+        private string Format(string sql)
+        {
+            Logger.LogDebug($"Using sql: {sql}");
+            return sql;
+        }
+
+        /// <summary>
+        /// Format sql text and execute
+        /// </summary>
+        /// <param name="command">Command from config</param>
+        /// <param name="formatParameters">Replace {} in sql</param>
+        /// <returns></returns>
+        public async Task ExecuteAsync(string command,
+            object[]? formatParameters = null)
+        {
+            using (var connection = Connection())
+            {
+                var sql = Command(command, connection)?.Text ?? command;
+                await connection.ExecuteAsync(Format(sql, formatParameters));
+            }
+        }
+
+        /// <summary>
+        /// Format sql text and query
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="commandName">Command from config</param>
+        /// <param name="formatParameters">Replace {} in sql</param>
+        /// <returns></returns>
+        public async Task<IEnumerable<T>> QueryAsync<T>(string commandName,
+            object[]? formatParameters = null)
+        {
+            using (var connection = Connection())
+            {
+                var command = CommandRequred(commandName, connection);
+                return await connection.QueryAsync<T>(Format(command.Text, formatParameters));
             }
         }
 
         public bool IsDbActive()
         {
             using (var connection = Connection())
-                return connection.QueryFirst<bool>(
-                        Command("IsDbActive", connection).Text,
-                        new { name = DbName() });
+                return QueryFirstAsync<bool>("IsDbActive",
+                        new { name = DbName() })
+                        .Result;
         }
 
         protected bool IsReady(IDbConnection? connection)
@@ -285,12 +374,36 @@ limit 1"
                 && connection.State != ConnectionState.Broken;
         }
 
+        public async Task<IEnumerable<T>> QueryAsync<T>(string command,
+            object? parameters = null)
+        {
+            using (var connection = Connection())
+            {
+                var sql = Command(command, connection)?.Text ?? command;
+                return await connection.QueryAsync<T>(
+                    Format(sql, parameters),
+                    parameters);
+            }
+        }
+
         public async Task<IEnumerable<dynamic>> QueryAsync(string query,
             object parameters)
         {
             using var c = Connection();
-            return await c.QueryAsync<dynamic>(query, parameters)
+            return await c.QueryAsync<dynamic>(Format(query, parameters), parameters)
                 ?? Array.Empty<dynamic>();
+        }
+
+        public async Task<T> QueryFirstAsync<T>(string command,
+            object? parameters = null)
+        {
+            using (var connection = Connection())
+            {
+                var sql = Command(command, connection)?.Text ?? command;
+                return await connection.QueryFirstAsync<T>(
+                    Format(sql, parameters),
+                    parameters);
+            }
         }
 
         public async Task<IEnumerable<T>> GetAllAsync<T>() where T : class
@@ -309,6 +422,34 @@ limit 1"
         {
             using var c = Connection();
             await c.UpdateAsync(value);
+        }
+
+        public async Task TruncateAsync(string table)
+        {
+            using var c = Connection();
+            var sql = "truncate";
+            switch (Vendor(c))
+            {
+                case ContextVendors.mssql:
+                    sql += " table " + MsSql.FromatTableName(table);
+                    break;
+
+                case ContextVendors.postgres:
+                    sql += " " + Postgres.FromatTableName(table) + " restart identity";
+                    break;
+
+                case ContextVendors.mysql:
+                    sql += " table " + table;
+                    break;
+            }
+            await c.ExecuteAsync(Format(sql));
+        }
+
+        public async Task TruncateAsync<T>() where T : class
+        {
+            var table = Model.GetTable<T>();
+            using var c = Connection();
+            await TruncateAsync(table);
         }
 
         /// <summary>
@@ -350,13 +491,41 @@ limit 1"
             await c.DeleteAsync(value);
         }
 
+        public async Task BulkInsertAsync<T>(IEnumerable<T> values,
+            string? tableName = null,
+            IEnumerable<string>? columns = null,
+            int bulkCopyTimeoutSeconds = 30,
+            int batchSize = 10000)
+            where T : class
+        {
+            using (var c = Connection())
+            {
+                var vendor = Vendor(c);
+                switch (vendor)
+                {
+                    case ContextVendors.mssql:
+                        var mc = (c as SqlConnection) ?? throw new ApplicationException("Wrong connection. Not MSSQL.");
+                        await MsSqlBulkCopy.BulkInsertAsync(mc, values, tableName, columns, bulkCopyTimeoutSeconds, batchSize);
+                        break;
+
+                    case ContextVendors.postgres:
+                        var nc = (c as NpgsqlConnection) ?? throw new ApplicationException("Wrong connection. Not Postgres.");
+                        await PostgresBulkCopy.BulkInsertAsync(nc, values, tableName, columns);
+                        break;
+
+                    default:
+                        throw new NotImplementedException($"Cannot use bulk insert for {vendor}");
+                }
+            }
+        }
+
         public void Dispose()
         {
             foreach (var p in _pool)
             {
                 if (p.Value.State != ConnectionState.Closed)
                 {
-                    Logger.LogDebug($"Close connection {p.Key}");
+                    Logger?.LogDebug($"Close connection {p.Key}");
                     p.Value.Close();
                 }
             }
