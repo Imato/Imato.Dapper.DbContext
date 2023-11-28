@@ -14,7 +14,7 @@ namespace Imato.Dapper.DbContext
             {
                 var ta = typeof(T)
                     .GetTypeInfo()
-                    .GetCustomAttribute<TableAttribute>();
+                    .GetCustomAttribute<global::Dapper.Contrib.Extensions.TableAttribute>();
                 r = ta?.Name;
             }
             catch { }

@@ -1,6 +1,6 @@
 ﻿namespace Imato.Dapper.DbContext
 {
-    public interface IDbObjectIdentity
+    public interface IDbObjectIdentity : IDbObject
     {
         public int Id { get; set; }
     }

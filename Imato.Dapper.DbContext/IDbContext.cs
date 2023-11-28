@@ -49,5 +49,9 @@ namespace Imato.Dapper.DbContext
         Task UpdateAsync<T>(T value) where T : class;
 
         Task UpsertAsync<T>(IEnumerable<T> values) where T : class, IDbObjectIdentity;
+
+        string DbObjectTable<T>();
+
+        string DbObjectDb<T>();
     }
 }

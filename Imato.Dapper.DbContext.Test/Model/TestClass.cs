@@ -2,7 +2,8 @@
 
 namespace Imato.Dapper.DbContext.Test
 {
-    [Table("test_case_1")]
+    [Db("unit_tests")]
+    [global::Dapper.Contrib.Extensions.Table("test_case_1")]
     public class TestClass
     {
         [ExplicitKey]
