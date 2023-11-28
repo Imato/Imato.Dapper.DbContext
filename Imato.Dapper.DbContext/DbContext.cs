@@ -428,6 +428,12 @@ namespace Imato.Dapper.DbContext
             }
         }
 
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="command">Command name from config or SQL</param>
+        /// <param name="parameters"></param>
+        /// <returns></returns>
         public async Task<T> QueryFirstAsync<T>(string command,
             object? parameters = null)
         {

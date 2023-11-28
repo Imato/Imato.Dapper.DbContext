@@ -18,7 +18,7 @@
 		<PackageTags>DbContext MS SQL Postgres MySql</PackageTags>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReleaseNotes>Ready to use</PackageReleaseNotes>
-		<Version>1.3.37</Version>
+		<Version>1.4.0</Version>
 		<AssemblyName>Imato.Dapper.DbContext</AssemblyName>
 		<PackageIcon>icon.png</PackageIcon>
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
