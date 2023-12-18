@@ -24,7 +24,7 @@ namespace Imato.Dapper.DbContext
             {
                 mapping = columns != null
                     ? columns.ToDictionary(x => x.ToUpper())
-                    : Objects.GetFieldNames<T>()
+                    : Objects.GetFieldNames<T>(skipChildren: true)
                         .ToDictionary(x => x.ToUpper());
                 _mapperColumns.TryAdd(typeKey, mapping);
             }
@@ -69,13 +69,13 @@ namespace Imato.Dapper.DbContext
             var ns = connection as NpgsqlConnection;
             if (ns != null)
             {
-                await ns.BulkInsertAsync<T>(data, tableName, columns);
+                await ns.BulkInsertAsync(data, tableName, columns);
             }
 
             var ms = connection as SqlConnection;
             if (ms != null)
             {
-                await ms.BulkInsertAsync<T>(data, tableName, columns);
+                await ms.BulkInsertAsync(data, tableName, columns);
             }
         }
     }

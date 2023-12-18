@@ -57,15 +57,20 @@ namespace Imato.Dapper.DbContext.Test
         [Test]
         public async Task CreateTestTableTest()
         {
-            var tableName = Model.GetTable<TestClass>();
-            var name = $"Create {tableName}";
+            var command = "Create test table";
             context.AddCommand(new ContextCommand
             {
                 ContextVendor = ContextVendors.postgres,
-                Name = name,
-                Text = $"create table if not exists {tableName} (id int not null primary key, name varchar(255) not null, date timestamp);"
+                Name = command,
+                Text = "create table if not exists {0} (id int not null primary key, name varchar(255) not null, date timestamp, meta_tags text);"
             });
-            await context.ExecuteAsync(name);
+
+            var tableName = context.TableNameOf<TestClass>();
+            await context.ExecuteAsync(command,
+                new string[] { tableName });
+            tableName = context.TableNameOf<TestClassCase>();
+            await context.ExecuteAsync(command,
+                new string[] { tableName });
         }
 
         [Test]
@@ -155,6 +160,38 @@ namespace Imato.Dapper.DbContext.Test
             var columns = "Name,Value";
             result = BulkCopy.GetColumnsOf<TestClass>(columns.Split(","));
             Assert.That(string.Join(",", result.Values), Is.EqualTo(columns));
+        }
+
+        [Test]
+        public async Task PropertuNameCaseTest()
+        {
+            var d = new TestClassCase
+            {
+                Id = 100,
+                Name = "PropertuNameCaseTest",
+                Date = DateTime.Parse("2023-11-30 11:12:13")
+            };
+            context.RegisterTypes(GetType().Assembly);
+            await CreateTestTableTest();
+            await context.TruncateAsync<TestClassCase>();
+
+            var result = await context.GetAllAsync<TestClassCase>();
+            Assert.That(result.Count(), Is.EqualTo(0));
+
+            await context.InsertAsync(d);
+
+            result = await context.GetAllAsync<TestClassCase>();
+            var r1 = result.First();
+            Assert.That(r1.Name, Is.EqualTo(d.Name));
+
+            d.Meta = "tag1, tag2";
+            await context.UpdateAsync(d);
+            r1 = await context.GetAsync<TestClassCase>(d.Id);
+            Assert.That(r1.Meta, Is.EqualTo(d.Meta));
+
+            await context.DeleteAsync(d);
+            result = await context.GetAllAsync<TestClassCase>();
+            Assert.That(result.Count(), Is.EqualTo(0));
         }
     }
 }

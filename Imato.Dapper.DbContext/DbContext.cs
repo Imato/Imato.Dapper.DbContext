@@ -1,5 +1,4 @@
 ﻿using Dapper;
-using Dapper.Contrib.Extensions;
 using Imato.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -8,6 +7,7 @@ using Npgsql;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Data;
 using System.Data.Common;
 using System.Data.SqlClient;
@@ -24,8 +24,11 @@ namespace Imato.Dapper.DbContext
         protected readonly IConfiguration Configuration;
 
         private string _dbName = "";
-        private readonly ConcurrentDictionary<string, IDbConnection> _pool = new ConcurrentDictionary<string, IDbConnection>();
-        protected readonly List<ContextCommand> ContextCommands = new List<ContextCommand>();
+        private static ConcurrentDictionary<string, IDbConnection> _pool = new ConcurrentDictionary<string, IDbConnection>();
+        protected static List<ContextCommand> ContextCommands = new List<ContextCommand>();
+
+        private static object _lock = new object();
+        private static bool _initilized = false;
 
         public DbContext(
             IConfiguration configuration,
@@ -33,24 +36,34 @@ namespace Imato.Dapper.DbContext
         {
             Configuration = configuration;
             Logger = logger;
-            AddCommands();
+            Initilize();
         }
 
-        protected virtual void AddCommands()
+        private void Initilize()
         {
-            var files = "*.SqlCommands.json";
-            Logger.LogDebug($"Load sql commands from files ${files}");
-            LoadCommandsFrom(files);
-        }
-
-        protected void LoadCommandsFrom(string fileName)
-        {
-            foreach (var file in Directory.GetFiles(
-                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
-                    fileName,
-                    SearchOption.AllDirectories))
+            lock (_lock)
             {
-                Logger.LogDebug($"Load sql commands from confgiguration file {file}");
+                if (_initilized)
+                {
+                    return;
+                }
+
+                RegisterTypes(typeof(DbContext).Assembly);
+                LoadCommandsFrom("*.SqlCommands.json");
+                RunMigrations().Wait();
+                _initilized = true;
+            }
+        }
+
+        protected static void LoadCommandsFrom(string fileName)
+        {
+            var folder = Path.GetDirectoryName(
+                Assembly.GetExecutingAssembly().Location);
+            foreach (var file in new DirectoryInfo(folder)
+                        .GetFiles(fileName, SearchOption.AllDirectories)
+                        .OrderBy(x => x.LastWriteTime)
+                        .Select(x => x.FullName))
+            {
                 var commands = File.ReadAllText(file)
                     .Deserialize<IEnumerable<ContextCommand>>();
 
@@ -58,7 +71,59 @@ namespace Imato.Dapper.DbContext
                 {
                     foreach (var command in commands)
                     {
-                        AddCommand(command);
+                        Add(command);
+                    }
+                }
+            }
+        }
+
+        protected async Task RunMigrations()
+        {
+            var folder = Path.GetDirectoryName(
+                Assembly.GetExecutingAssembly().Location);
+            folder = Path.Combine(folder, "Migrations");
+
+            var connections = ConnectionStrings()
+                .ToDictionary(x => x.Vendor.ToString(), x => Create(x.String));
+
+            foreach (var c in connections.Values)
+            {
+                await c.ExecuteAsync(Sql("CreateMigrations"));
+            }
+
+            if (Directory.Exists(folder)
+                && connections.Count > 0)
+            {
+                foreach (var file in new DirectoryInfo(folder)
+                            .GetFiles("*.sql", SearchOption.AllDirectories)
+                            .OrderBy(x => x.Name)
+                            .Select(x => x.FullName))
+                {
+                    var name = Path.GetFileName(file);
+                    var vendor = name.Split('_')[0];
+                    var connection = connections.ContainsKey(vendor)
+                        ? connections[vendor]
+                        : null;
+                    if (connection == null
+                        && connections.Count == 1
+                        && !Enum.TryParse(typeof(ContextVendors), vendor, out var r))
+                    {
+                        connection = connections.Values.First();
+                    }
+
+                    if (connection != null)
+                    {
+                        var exists = await connection.GetAsync<DbMigration>(name);
+                        if (exists == null)
+                        {
+                            var sql = File.ReadAllText(file);
+                            await connection.ExecuteAsync(Sql(sql));
+                            await connection.InsertAsync(new DbMigration
+                            {
+                                Id = name,
+                                Date = DateTime.Now
+                            });
+                        }
                     }
                 }
             }
@@ -124,26 +189,40 @@ namespace Imato.Dapper.DbContext
                 ?? throw new KeyNotFoundException($"Not exists connection string {name}");
         }
 
-        protected static ContextVendors Vendor(IDbConnection connection)
+        protected IEnumerable<ConnectionString> ConnectionStrings()
         {
-            return Vendor(connection.ConnectionString);
+            return Configuration.GetSection("ConnectionStrings")
+                     .GetChildren()
+                     .Select(c => new ConnectionString
+                     {
+                         Name = c.Key,
+                         String = c.Value ?? throw new ApplicationException($"Empty connection string {c.Key}"),
+                         Vendor = Vendor(c.Value)
+                     });
+        }
+
+        protected ContextVendors Vendor(IDbConnection? connection)
+        {
+            return Vendor(connection?.ConnectionString ?? ConnectionString());
         }
 
         protected static ContextVendors Vendor(string connectionString)
         {
-            if (connectionString.Contains("Initial Catalog"))
+            var cs = connectionString;
+
+            if (cs.Contains("Initial Catalog"))
             {
                 return ContextVendors.mssql;
             }
 
-            if (connectionString.Contains("Host")
-                && connectionString.Contains("Database"))
+            if (cs.Contains("Host")
+                && cs.Contains("Database"))
             {
                 return ContextVendors.postgres;
             }
 
-            if (connectionString.Contains("Server")
-                && connectionString.Contains("Database"))
+            if (cs.Contains("Server")
+                && cs.Contains("Database"))
             {
                 return ContextVendors.mysql;
             }
@@ -179,22 +258,22 @@ namespace Imato.Dapper.DbContext
                 case ContextVendors.mssql:
                     var sb = new SqlConnectionStringBuilder(connectionString);
                     sb.InitialCatalog = dataBase != "" ? dataBase : sb.InitialCatalog;
-                    sb.UserID = sb.UserID ?? user;
-                    sb.Password = sb.Password ?? password;
+                    sb.UserID ??= user;
+                    sb.Password ??= password;
                     return new SqlConnection(sb.ConnectionString);
 
                 case ContextVendors.postgres:
                     var nb = new NpgsqlConnectionStringBuilder(connectionString);
                     nb.Database = dataBase != "" ? dataBase : nb.Database;
-                    nb.Username = nb.Username ?? user;
-                    nb.Password = nb.Password ?? password;
+                    nb.Username ??= user;
+                    nb.Password ??= password;
                     return new NpgsqlConnection(nb.ConnectionString);
 
                 case ContextVendors.mysql:
                     var mb = new MySqlConnectionStringBuilder(connectionString);
                     mb.Database = dataBase != "" ? dataBase : mb.Database;
-                    mb.UserID = mb.UserID ?? user;
-                    mb.Password = mb.Password ?? password;
+                    mb.UserID ??= user;
+                    mb.Password ??= password;
                     return new MySqlConnection(mb.ConnectionString);
             }
 
@@ -209,6 +288,11 @@ namespace Imato.Dapper.DbContext
             var cs = Create(connectionString, dataBase, user, password);
             Logger.LogDebug($"Create connection: {cs.ConnectionString}");
             return cs;
+        }
+
+        protected IDbConnection Create(string connectionString)
+        {
+            return Create(connectionString, "");
         }
 
         protected IDbConnection Connection<T>()
@@ -272,7 +356,7 @@ namespace Imato.Dapper.DbContext
                 ?? throw new ArgumentOutOfRangeException($"Cannot find context command {name}. Add it in AddCommands()");
         }
 
-        public ContextCommand? Command(string name, IDbConnection connection)
+        public ContextCommand? Command(string name, IDbConnection? connection)
         {
             var vendor = Vendor(connection);
             return ContextCommands
@@ -286,10 +370,8 @@ namespace Imato.Dapper.DbContext
                 ?? throw new ArgumentOutOfRangeException($"Cannot find context command {name}. Add it in AddCommands()");
         }
 
-        public void AddCommand(ContextCommand command)
+        private static void Add(ContextCommand command)
         {
-            Logger.LogDebug($"Add command {command.ToJson()}");
-            var vendor = Vendor(ConnectionString());
             var exits = ContextCommands.Find(x => x.ContextVendor == command.ContextVendor && x.Name == command.Name);
             if (exits != null)
             {
@@ -298,19 +380,27 @@ namespace Imato.Dapper.DbContext
             ContextCommands.Add(command);
         }
 
+        public void AddCommand(ContextCommand command)
+        {
+            Add(command);
+        }
+
         public bool IsMasterServer()
         {
             using (var connection = Connection())
             {
-                var command = CommandRequred("IsMasterServer", connection);
-                var sql = Format(command.Text);
-                return connection.QueryFirst<string>(sql)
-                    .StartsWith(Environment.MachineName);
+                var sql = Sql("IsMasterServer", connection);
+                return Try(() => connection.QueryFirst<string>(sql)
+                                           .StartsWith(Environment.MachineName),
+                    sql);
             }
         }
 
-        protected string Format(string sql, object[]? parameters = null)
+        protected string Sql(string command,
+            object[]? parameters,
+            IDbConnection? connection)
         {
+            var sql = Command(command, connection)?.Text ?? command;
             if (parameters != null
                 && sql.Contains("{")
                 && sql.Contains("}"))
@@ -322,14 +412,21 @@ namespace Imato.Dapper.DbContext
             return sql;
         }
 
-        protected string Format(string sql, object? parameters)
+        protected string Sql(string command,
+            object? parameters,
+            IDbConnection? connection)
         {
+            var sql = Command(command, connection)?.Text ?? command;
             Logger.LogDebug($"Using sql: {sql}; parameters: {parameters?.ToJson() ?? null}");
             return sql;
         }
 
-        protected string Format(string sql)
+        protected string Sql(string command,
+            IDbConnection? connection = null)
         {
+            var sql = command.Length < 100
+                ? (Command(command, connection)?.Text ?? command)
+                : command;
             Logger.LogDebug($"Using sql: {sql}");
             return sql;
         }
@@ -345,8 +442,7 @@ namespace Imato.Dapper.DbContext
         {
             using (var connection = Connection())
             {
-                var sql = Command(command, connection)?.Text ?? command;
-                await connection.ExecuteAsync(Format(sql, formatParameters));
+                await connection.ExecuteAsync(Sql(command, formatParameters, connection));
             }
         }
 
@@ -361,8 +457,8 @@ namespace Imato.Dapper.DbContext
         {
             using (var connection = Connection())
             {
-                var sql = Command(command, connection)?.Text ?? command;
-                await connection.ExecuteAsync(Format(sql, parameters));
+                var sql = Sql(command, parameters, connection);
+                await Try(() => connection.ExecuteAsync(sql, parameters), sql);
             }
         }
 
@@ -378,8 +474,8 @@ namespace Imato.Dapper.DbContext
         {
             using (var connection = Connection<T>())
             {
-                var sql = Command(command, connection)?.Text ?? command;
-                return await connection.QueryAsync<T>(Format(sql, formatParameters));
+                var sql = Sql(command, formatParameters, connection);
+                return await Try(() => connection.QueryAsync<T>(sql), sql, command);
             }
         }
 
@@ -398,16 +494,45 @@ namespace Imato.Dapper.DbContext
                 && connection.State != ConnectionState.Broken;
         }
 
+        /// <summary>
+        ///
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="command">Command name from config or SQL</param>
+        /// <param name="parameters"></param>
+        /// <returns></returns>
         public async Task<IEnumerable<T>> QueryAsync<T>(string command,
-            object? parameters = null)
+            object parameters)
         {
             using (var connection = Connection<T>())
             {
-                var sql = Command(command, connection)?.Text ?? command;
-                return await connection.QueryAsync<T>(
-                    Format(sql, parameters),
-                    parameters);
+                var sql = Sql(command, parameters, connection);
+                return await Try(() => connection.QueryAsync<T>(sql, parameters),
+                    sql, command);
             }
+        }
+
+        private T Try<T>(Func<T> func,
+            string sql,
+            string? command = null)
+        {
+            try
+            {
+                return func();
+            }
+            catch (Exception e)
+            {
+                throw Catch(e, sql, command);
+            }
+        }
+
+        private Exception Catch(Exception e,
+            string sql,
+            string? command = null)
+        {
+            var ex = new SqlException(e, sql, command);
+            Logger?.LogError(ex.Message);
+            return ex;
         }
 
         /// <summary>
@@ -421,10 +546,9 @@ namespace Imato.Dapper.DbContext
         {
             using (var connection = Connection())
             {
-                var sql = Command(command, connection)?.Text ?? command;
-                return await connection.QueryAsync<dynamic>(Format(sql, parameters),
-                    parameters)
-                    ?? Array.Empty<dynamic>();
+                var sql = Sql(command, parameters, connection);
+                return await Try(() => connection.QueryAsync<dynamic>(sql, parameters),
+                    sql, command);
             }
         }
 
@@ -439,35 +563,34 @@ namespace Imato.Dapper.DbContext
         {
             using (var connection = Connection<T>())
             {
-                var sql = Command(command, connection)?.Text ?? command;
-                return await connection.QueryFirstAsync<T>(
-                    Format(sql, parameters),
-                    parameters);
+                var sql = Sql(command, parameters, connection);
+                return await Try(() => connection.QueryFirstAsync<T>(sql, parameters),
+                    sql, command);
             }
         }
 
         public async Task<T> GetAsync<T>(object key) where T : class
         {
             using var c = Connection<T>();
-            return await c.GetAsync<T>(key);
+            return await c.GetAsync<T>(key, logger: Logger);
         }
 
         public async Task<IEnumerable<T>> GetAllAsync<T>() where T : class
         {
             using var c = Connection<T>();
-            return await c.GetAllAsync<T>();
+            return await c.GetAllAsync<T>(logger: Logger);
         }
 
         public async Task InsertAsync<T>(T value) where T : class
         {
             using var c = Connection<T>();
-            await c.InsertAsync(value);
+            await c.InsertAsync(value, logger: Logger);
         }
 
         public async Task UpdateAsync<T>(T value) where T : class
         {
             using var c = Connection<T>();
-            await c.UpdateAsync(value);
+            await c.UpdateAsync(value, logger: Logger);
         }
 
         private async Task TruncateAsync(IDbConnection connection,
@@ -477,18 +600,20 @@ namespace Imato.Dapper.DbContext
             switch (Vendor(connection))
             {
                 case ContextVendors.mssql:
-                    sql += " table " + MsSql.FromatTableName(table);
+                    sql += " table " + MsSql.FormatTableName(table);
                     break;
 
                 case ContextVendors.postgres:
-                    sql += " " + Postgres.FromatTableName(table) + " restart identity";
+                    sql += " " + Postgres.FormatTableName(table) + " restart identity";
                     break;
 
                 case ContextVendors.mysql:
                     sql += " table " + table;
                     break;
             }
-            await connection.ExecuteAsync(Format(sql));
+
+            await Try(() => connection.ExecuteAsync(Sql(sql)),
+                sql);
         }
 
         public async Task TruncateAsync<T>() where T : class
@@ -518,28 +643,28 @@ namespace Imato.Dapper.DbContext
             }
 
             using var c = Connection<T>();
-            var all = await c.GetAllAsync<T>();
+            var all = await c.GetAllAsync<T>(logger: Logger);
             var exists = values.Where(x => all.Any(y => y.Id == x.Id));
             if (exists.Any())
             {
-                await c.UpdateAsync(exists);
+                await c.UpdateAsync(exists, logger: Logger);
             }
             var news = values.Where(x => !all.Any(y => y.Id == x.Id));
             if (news.Any())
             {
-                await c.InsertAsync(news);
+                await c.InsertAsync(news, logger: Logger);
             }
             var delete = all.Where(x => !values.Any(y => y.Id == x.Id));
             if (delete.Any())
             {
-                await c.DeleteAsync(delete);
+                await c.DeleteAsync(delete, logger: Logger);
             }
         }
 
         public async Task DeleteAsync<T>(T value) where T : class
         {
             using var c = Connection<T>();
-            await c.DeleteAsync(value);
+            await c.DeleteAsync(value, logger: Logger);
         }
 
         public async Task BulkInsertAsync<T>(IEnumerable<T> values,
@@ -582,14 +707,72 @@ namespace Imato.Dapper.DbContext
             }
         }
 
-        public string DbObjectTable<T>()
+        /// <summary>
+        /// Table name of class T
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        public string TableNameOf<T>()
         {
             return TableAttributeExtensions.RequiredValue<T>();
         }
 
-        public string DbObjectDb<T>()
+        /// <summary>
+        /// Db name of class T
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        public string DbNameOf<T>()
         {
             return DbAttribute.RequiredValue<T>();
+        }
+
+        /// <summary>
+        /// Get columns of tableName
+        /// </summary>
+        /// <param name="tableName"></param>
+        /// <returns></returns>
+        public async Task<IEnumerable<string>> GetColumnsAsync(
+            string tableName)
+        {
+            return await QueryAsync<string>("GetColumns", new { tableName });
+        }
+
+        /// <summary>
+        /// Register DB type with columns mapping
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        public void RegisterType<T>()
+        {
+            RegisterType(typeof(T));
+        }
+
+        /// <summary>
+        /// Register DB type with columns mapping
+        /// </summary>
+        public void RegisterType(Type type)
+        {
+            SqlMapperExtensions.RegisterType(type);
+        }
+
+        /// <summary>
+        /// Register all DB types with columns mapping.
+        /// </summary>
+        /// <param name="assembly">assembly with DB types</param>
+        public void RegisterTypes(Assembly assembly)
+        {
+            var types = assembly
+                .GetTypes()
+                .Where(x =>
+                    !x.IsAbstract
+                    && !x.IsInterface
+                    && (x.GetCustomAttribute<TableAttribute>() != null)
+                        || x.GetProperties().Any(x => x.GetCustomAttribute<ColumnAttribute>() != null));
+
+            foreach (var type in types)
+            {
+                RegisterType(type);
+            }
         }
     }
 }

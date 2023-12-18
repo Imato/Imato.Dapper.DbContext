@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Linq;
 
-namespace Imato.Dapper.DbContext
+namespace System.ComponentModel.DataAnnotations.Schema
 {
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
     public class ConnectionAttribute : Attribute
     {
         public string Name { get; private set; } = "";

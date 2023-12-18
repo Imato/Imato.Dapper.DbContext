@@ -16,7 +16,7 @@ namespace Imato.Dapper.DbContext
             connection.Open();
             var bulk = new SqlBulkCopy(connection)
                 .AddMappings<T>(columns);
-            bulk.DestinationTableName = tableName ?? Model.GetTable<T>();
+            bulk.DestinationTableName = tableName ?? TableAttributeExtensions.RequiredValue<T>();
             bulk.BulkCopyTimeout = bulkCopyTimeoutSeconds;
             bulk.BatchSize = batchSize;
 

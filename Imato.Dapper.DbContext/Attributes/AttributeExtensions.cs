@@ -1,4 +1,6 @@
-﻿namespace Imato.Dapper.DbContext.Attributes
+﻿using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Imato.Dapper.DbContext
 {
     public static class AttributeExtensions
     {

@@ -2,7 +2,7 @@
 {
     public static class MsSql
     {
-        public static string FromatTableName(string tableName)
+        public static string FormatTableName(string tableName)
         {
             return tableName.Contains(".") ? tableName : "dbo." + tableName;
         }

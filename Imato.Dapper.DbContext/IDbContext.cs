@@ -1,5 +1,7 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Data;
+using System.Reflection;
 using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
@@ -34,12 +36,29 @@ namespace Imato.Dapper.DbContext
 
         bool IsMasterServer();
 
-        Task<IEnumerable<dynamic>> QueryAsync(string query, object parameters);
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="command">Command name from config or SQL</param>
+        Task<IEnumerable<dynamic>> QueryAsync(string command, object parameters);
 
-        Task<IEnumerable<T>> QueryAsync<T>(string command, object? parameters = null);
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="command">Command name from config or SQL</param>
+        Task<IEnumerable<T>> QueryAsync<T>(string command, object parameters);
+
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="command">Command name from config or SQL</param>
 
         Task<IEnumerable<T>> QueryAsync<T>(string commandName, object[]? formatParameters = null);
 
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="command">Command name from config or SQL</param>
         Task<T> QueryFirstAsync<T>(string command, object? parameters = null);
 
         Task TruncateAsync(string table);
@@ -48,10 +67,51 @@ namespace Imato.Dapper.DbContext
 
         Task UpdateAsync<T>(T value) where T : class;
 
+        /// <summary>
+        /// Use for small tables only!
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="value"></param>
+        /// <returns></returns>
         Task UpsertAsync<T>(IEnumerable<T> values) where T : class, IDbObjectIdentity;
 
-        string DbObjectTable<T>();
+        /// <summary>
+        /// Table in DB of class T from attribute
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        string TableNameOf<T>();
 
-        string DbObjectDb<T>();
+        /// <summary>
+        /// DB of class T  from attribute
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        string DbNameOf<T>();
+
+        /// <summary>
+        /// Get columns of tableName
+        /// </summary>
+        /// <param name="tableName"></param>
+        /// <returns></returns>
+        Task<IEnumerable<string>> GetColumnsAsync(
+            string tableName);
+
+        /// <summary>
+        /// Register DB type with columns mapping
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        void RegisterType<T>();
+
+        /// <summary>
+        /// Register DB type with columns mapping
+        /// </summary>
+        void RegisterType(Type type);
+
+        /// <summary>
+        /// Register all DB types with columns mapping.
+        /// </summary>
+        /// <param name="assembly">assembly with DB types</param>
+        void RegisterTypes(Assembly assembly);
     }
 }

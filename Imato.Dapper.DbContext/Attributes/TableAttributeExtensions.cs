@@ -1,27 +1,26 @@
-﻿using Dapper.Contrib.Extensions;
-using System;
+﻿using System;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 
 namespace Imato.Dapper.DbContext
 {
     public static class TableAttributeExtensions
     {
-        public static string Value<T>(T obj)
+        public static string? Value<T>(T obj)
         {
             return Value<T>();
         }
 
-        public static string Value(Type t)
+        public static string? Value(Type t)
         {
             return t
                 .GetCustomAttributes(false)
                 .OfType<TableAttribute>()
                 .FirstOrDefault()
-                ?.Name
-                ?? "";
+                ?.Name;
         }
 
-        public static string Value<T>()
+        public static string? Value<T>()
         {
             return Value(typeof(T));
         }

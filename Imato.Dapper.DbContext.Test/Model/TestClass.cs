@@ -1,9 +1,9 @@
-﻿using Dapper.Contrib.Extensions;
+﻿using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Imato.Dapper.DbContext.Test
 {
     [Db("unit_tests")]
-    [global::Dapper.Contrib.Extensions.Table("test_case_1")]
+    [Table("test_case_1")]
     public class TestClass
     {
         [ExplicitKey]
