@@ -14,45 +14,61 @@ using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
 {
     public class DbContext : IDisposable, IDbContext
     {
-        protected readonly ILogger Logger;
-        protected readonly IConfiguration Configuration;
-
+        private readonly string? _connectionString;
         private string _dbName = "";
         private static ConcurrentDictionary<string, IDbConnection> _pool = new ConcurrentDictionary<string, IDbConnection>();
-        protected static List<ContextCommand> ContextCommands = new List<ContextCommand>();
-
-        private static object _lock = new object();
+        private static SemaphoreSlim _semaphore = new SemaphoreSlim(1);
         private static bool _initilized = false;
+
+        protected readonly ILogger? Logger;
+        protected readonly IConfiguration Configuration;
+        protected static List<ContextCommand> ContextCommands = new List<ContextCommand>();
 
         public DbContext(
             IConfiguration configuration,
-            ILogger<DbContext> logger)
+            ILogger<DbContext>? logger = null)
         {
             Configuration = configuration;
             Logger = logger;
             Initilize();
         }
 
+        public DbContext(
+            string connectionString,
+            ILogger<DbContext>? logger = null)
+        {
+            _connectionString = connectionString;
+            Logger = logger;
+            Initilize();
+        }
+
         private void Initilize()
         {
-            lock (_lock)
+            _semaphore.Wait();
+            if (!_initilized)
             {
-                if (_initilized)
+                try
                 {
-                    return;
+                    RegisterTypes(typeof(DbContext).Assembly);
+                    LoadCommandsFrom("*.SqlCommands.json");
+                    RunMigrations().Wait();
+                }
+                catch (Exception ex)
+                {
+                    Logger?.LogError(ex, "DbContext initialization");
                 }
 
-                RegisterTypes(typeof(DbContext).Assembly);
-                LoadCommandsFrom("*.SqlCommands.json");
-                RunMigrations().Wait();
                 _initilized = true;
             }
+
+            _semaphore.Release();
         }
 
         protected static void LoadCommandsFrom(string fileName)
@@ -85,6 +101,11 @@ namespace Imato.Dapper.DbContext
 
             var connections = ConnectionStrings()
                 .ToDictionary(x => x.Vendor.ToString(), x => Create(x.String));
+
+            if (connections.Count == 0)
+            {
+                return;
+            }
 
             foreach (var c in connections.Values)
             {
@@ -176,29 +197,38 @@ namespace Imato.Dapper.DbContext
 
         protected string ConnectionString(string name = "")
         {
-            if (name == "")
-            {
-                return Configuration.GetSection("ConnectionStrings")
-                    .GetChildren()
-                    .FirstOrDefault()
-                    ?.Value
-                    ?? throw new ArgumentException("Not exists ConnectionStrings in app configuration");
-            }
-
-            return Configuration.GetConnectionString(name)
-                ?? throw new KeyNotFoundException($"Not exists connection string {name}");
+            return _connectionString ??
+                Configuration
+                ?.GetSection("ConnectionStrings")
+                ?.GetChildren()
+                ?.FirstOrDefault(x => string.IsNullOrEmpty(name) || x.Key == name)
+                ?.Value
+                ?? throw new ArgumentException("Not exists ConnectionStrings in app configuration");
         }
 
         protected IEnumerable<ConnectionString> ConnectionStrings()
         {
-            return Configuration.GetSection("ConnectionStrings")
-                     .GetChildren()
-                     .Select(c => new ConnectionString
-                     {
-                         Name = c.Key,
-                         String = c.Value ?? throw new ApplicationException($"Empty connection string {c.Key}"),
-                         Vendor = Vendor(c.Value)
-                     });
+            return Configuration
+                    ?.GetSection("ConnectionStrings")
+                    ?.GetChildren()
+                    ?.Select(c => new ConnectionString
+                    {
+                        Name = c.Key,
+                        String = c.Value ?? throw new ApplicationException($"Empty connection string {c.Key}"),
+                        Vendor = Vendor(c.Value)
+                    })
+                    ??
+                    (_connectionString != null
+                        ? new ConnectionString[]
+                        {
+                            new ConnectionString
+                            {
+                                Name = "CS",
+                                String = _connectionString,
+                                Vendor = Vendor(_connectionString)
+                            }
+                        }
+                        : Array.Empty<ConnectionString>());
         }
 
         protected ContextVendors Vendor(IDbConnection? connection)
@@ -233,19 +263,19 @@ namespace Imato.Dapper.DbContext
         protected string DbUser()
         {
             var name = Configuration
-                .GetSection("Environment:DbUser")
-                .Value;
+                ?.GetSection("Environment:DbUser")
+                ?.Value;
             return string.IsNullOrEmpty(name) ? ""
-                    : Environment.GetEnvironmentVariable(name);
+                    : Environment.GetEnvironmentVariable(name) ?? "";
         }
 
         protected string DbUserPassword()
         {
             var name = Configuration
-                .GetSection("Environment:DbUserPassword")
-                .Value;
+                ?.GetSection("Environment:DbUserPassword")
+                ?.Value;
             return string.IsNullOrEmpty(name) ? ""
-                    : Environment.GetEnvironmentVariable(name);
+                    : Environment.GetEnvironmentVariable(name) ?? "";
         }
 
         public static IDbConnection Create(string connectionString,
@@ -258,22 +288,22 @@ namespace Imato.Dapper.DbContext
                 case ContextVendors.mssql:
                     var sb = new SqlConnectionStringBuilder(connectionString);
                     sb.InitialCatalog = dataBase != "" ? dataBase : sb.InitialCatalog;
-                    sb.UserID ??= user;
-                    sb.Password ??= password;
+                    sb.UserID = string.IsNullOrEmpty(sb.UserID) ? user : sb.UserID;
+                    sb.Password = string.IsNullOrEmpty(sb.Password) ? password : sb.Password;
                     return new SqlConnection(sb.ConnectionString);
 
                 case ContextVendors.postgres:
                     var nb = new NpgsqlConnectionStringBuilder(connectionString);
                     nb.Database = dataBase != "" ? dataBase : nb.Database;
-                    nb.Username ??= user;
-                    nb.Password ??= password;
+                    nb.Username = string.IsNullOrEmpty(nb.Username) ? user : nb.Username;
+                    nb.Password = string.IsNullOrEmpty(nb.Password) ? password : nb.Password;
                     return new NpgsqlConnection(nb.ConnectionString);
 
                 case ContextVendors.mysql:
                     var mb = new MySqlConnectionStringBuilder(connectionString);
                     mb.Database = dataBase != "" ? dataBase : mb.Database;
-                    mb.UserID ??= user;
-                    mb.Password ??= password;
+                    mb.UserID = string.IsNullOrEmpty(mb.UserID) ? user : mb.UserID;
+                    mb.Password = string.IsNullOrEmpty(mb.Password) ? password : mb.Password;
                     return new MySqlConnection(mb.ConnectionString);
             }
 
@@ -286,7 +316,7 @@ namespace Imato.Dapper.DbContext
             var user = DbUser();
             var password = DbUserPassword();
             var cs = Create(connectionString, dataBase, user, password);
-            Logger.LogDebug($"Create connection: {cs.ConnectionString}");
+            Logger?.LogDebug($"Create connection: {cs.ConnectionString}");
             return cs;
         }
 
@@ -328,11 +358,12 @@ namespace Imato.Dapper.DbContext
 
         protected IDbConnection Connection(ContextVendors vendor)
         {
-            var cs = Configuration.GetSection("ConnectionStrings")
-                    .GetChildren()
-                    .Select(x => x.Value)
-                    .Where(x => Vendor(x ?? "") == vendor)
-                    .FirstOrDefault();
+            var cs = Configuration
+                    ?.GetSection("ConnectionStrings")
+                    ?.GetChildren()
+                    ?.Select(x => x.Value)
+                    ?.Where(x => Vendor(x ?? "") == vendor)
+                    ?.FirstOrDefault();
 
             if (cs == null)
             {
@@ -408,7 +439,7 @@ namespace Imato.Dapper.DbContext
                 sql = string.Format(sql, parameters);
             }
 
-            Logger.LogDebug($"Using sql: {sql}");
+            Logger?.LogDebug($"Using sql: {sql}");
             return sql;
         }
 
@@ -417,7 +448,7 @@ namespace Imato.Dapper.DbContext
             IDbConnection? connection)
         {
             var sql = Command(command, connection)?.Text ?? command;
-            Logger.LogDebug($"Using sql: {sql}; parameters: {parameters?.ToJson() ?? null}");
+            Logger?.LogDebug($"Using sql: {sql}; parameters: {parameters?.ToJson() ?? null}");
             return sql;
         }
 
@@ -427,7 +458,7 @@ namespace Imato.Dapper.DbContext
             var sql = command.Length < 100
                 ? (Command(command, connection)?.Text ?? command)
                 : command;
-            Logger.LogDebug($"Using sql: {sql}");
+            Logger?.LogDebug($"Using sql: {sql}");
             return sql;
         }
 

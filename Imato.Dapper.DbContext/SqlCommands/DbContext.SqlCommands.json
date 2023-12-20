@@ -32,11 +32,11 @@
   {
     "name": "CreateMigrations",
     "contextVendor": "postgres",
-    "text": "create table if not exists migrations (id varchar(255) not null primary key, date timestamp not null);"
+    "text": "create table if not exists db_migrations (id varchar(255) not null primary key, date timestamp not null);"
   },
   {
     "name": "CreateMigrations",
     "contextVendor": "mssql",
-    "text": "if object_id('dbo.migrations') is null create table dbo.migrations (id varchar(255) not null primary key, date datetime not null);"
+    "text": "if object_id('dbo.db_migrations') is null create table dbo.db_migrations (id varchar(255) not null primary key, date datetime not null);"
   }
 ]

@@ -99,9 +99,40 @@ namespace Imato.Dapper.DbContext
             return explicitKeyProperties;
         }
 
+        private static string ColumnKey(Type type, string property)
+        {
+            return $"{type.Name}.{property}";
+        }
+
+        /// <summary>
+        /// Columns list of type in DB table
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public static IEnumerable<string>? ColumnsOf(Type type)
+        {
+            var key = $"{type.Name}.";
+            return ColumnNames
+                .Where(x => x.Key.StartsWith(key))
+                .Select(x => x.Value);
+        }
+
+        /// <summary>
+        /// Mapping: property name of T <-> column name
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public static IDictionary<string, string> MappingsOf(Type type)
+        {
+            var key = $"{type.Name}.";
+            return ColumnNames
+                .Where(x => x.Key.StartsWith(key))
+                .ToDictionary(x => x.Key.Split(".")[1], x => x.Value);
+        }
+
         private static string ColumnNameCache(Type type, string property)
         {
-            var key = $"{type.Name}.{property}";
+            var key = ColumnKey(type, property);
             var value = property;
 
             if (ColumnNames.TryGetValue(key, out value))
@@ -124,7 +155,7 @@ namespace Imato.Dapper.DbContext
             string property,
             string column)
         {
-            var key = $"{type.Name}.{property}";
+            var key = ColumnKey(type, property);
             ColumnNames[key] = column;
         }
 

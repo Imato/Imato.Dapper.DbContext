@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Imato.Dapper.DbContext
 {
-    [Table("migrations")]
+    [Table("db_migrations")]
     public class DbMigration
     {
         [ExplicitKey]
