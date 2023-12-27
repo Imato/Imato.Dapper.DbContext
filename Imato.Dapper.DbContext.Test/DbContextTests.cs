@@ -26,14 +26,14 @@ namespace Imato.Dapper.DbContext.Test
         public void ConnectionStringTest()
         {
             var method = AppBulder.GetMethod<DbContext>("ConnectionString");
-            var result = method?.Invoke(context, new object[] { "" });
+            var result = method?.Invoke(context, new object[] { "postgres" });
             Assert.That(result.ToString().Contains("Host=localhost"));
         }
 
         [Test]
         public void ConnectionTest()
         {
-            var parameters = new object[] { "", "", "" };
+            var parameters = new object[] { "", "", "postgres" };
             var method = AppBulder.GetMethod<DbContext>("Connection", parameters);
             var result = method?.Invoke(context, parameters) as IDbConnection;
             Assert.That(result != null);
@@ -54,8 +54,7 @@ namespace Imato.Dapper.DbContext.Test
             Assert.True(context.IsDbActive());
         }
 
-        [Test]
-        public async Task CreateTestTableTest()
+        private async Task CreateTableTest<T>()
         {
             var command = "Create test table";
             context.AddCommand(new ContextCommand
@@ -65,18 +64,30 @@ namespace Imato.Dapper.DbContext.Test
                 Text = "create table if not exists {0} (id int not null primary key, name varchar(255) not null, date timestamp, meta_tags text);"
             });
 
-            var tableName = context.TableNameOf<TestClass>();
+            context.AddCommand(new ContextCommand
+            {
+                ContextVendor = ContextVendors.mssql,
+                Name = command,
+                Text = "if object_id('{0}') is null create table {0} (id int not null primary key, name varchar(255) not null, date datetime, meta_tags varchar(max));"
+            });
+
             await context.ExecuteAsync(command,
-                new string[] { tableName });
-            tableName = context.TableNameOf<TestClassCase>();
-            await context.ExecuteAsync(command,
-                new string[] { tableName });
+                new string[] { context.TableNameOf<T>() },
+                context.ConnectionNameOf<T>());
+        }
+
+        [Test]
+        public async Task CreateTablesTest()
+        {
+            await CreateTableTest<TestClass>();
+            await CreateTableTest<TestClassCase>();
+            Assert.Pass();
         }
 
         [Test]
         public async Task ClearTest()
         {
-            await CreateTestTableTest();
+            await CreateTablesTest();
             await context.TruncateAsync<TestClass>();
             var result = await context.GetAllAsync<TestClass>();
             Assert.That(result.Count(), Is.EqualTo(0));
@@ -85,7 +96,7 @@ namespace Imato.Dapper.DbContext.Test
         [Test]
         public async Task InsertAsyncTest()
         {
-            await CreateTestTableTest();
+            await CreateTablesTest();
             await context.TruncateAsync<TestClass>();
             await context.InsertAsync(values.First());
             var result = await context.GetAllAsync<TestClass>();
@@ -117,7 +128,7 @@ namespace Imato.Dapper.DbContext.Test
         public async Task InsertManyTest()
         {
             await ClearTest();
-            await context.InsertAsync(values);
+            await context.InsertAsync(values.AsEnumerable());
             var result = await context.GetAllAsync<TestClass>();
             Assert.That(result.Count(), Is.EqualTo(201));
             var resultLast = result.Last();
@@ -134,6 +145,14 @@ namespace Imato.Dapper.DbContext.Test
             var result = await context.GetAllAsync<TestClass>();
             Assert.That(result.Count(), Is.EqualTo(201));
             Assert.That(result.Last().name, Is.EqualTo(values.Last().name));
+        }
+
+        [Test]
+        public async Task GetAsyncTest()
+        {
+            await BulkInsertAsyncTest();
+            var r = await context.GetAsync<TestClass>(2);
+            Assert.That(r.name, Is.EqualTo(values.Where(x => x.id == 2).First().name));
         }
 
         [Test]
@@ -171,8 +190,8 @@ namespace Imato.Dapper.DbContext.Test
                 Name = "PropertuNameCaseTest",
                 Date = DateTime.Parse("2023-11-30 11:12:13")
             };
-            context.RegisterTypes(GetType().Assembly);
-            await CreateTestTableTest();
+            context.RegisterType<TestClassCase>();
+            await CreateTablesTest();
             await context.TruncateAsync<TestClassCase>();
 
             var result = await context.GetAllAsync<TestClassCase>();
@@ -191,6 +210,39 @@ namespace Imato.Dapper.DbContext.Test
 
             await context.DeleteAsync(d);
             result = await context.GetAllAsync<TestClassCase>();
+            Assert.That(result.Count(), Is.EqualTo(0));
+        }
+
+        [Test]
+        public async Task SqlServerTest()
+        {
+            var d = new TestClassCase2
+            {
+                Id = 100,
+                Name = "PropertuNameCaseTest",
+                Date = DateTime.Parse("2023-11-30 11:12:13")
+            };
+            context.RegisterType<TestClassCase2>();
+            await CreateTableTest<TestClassCase2>();
+            await context.TruncateAsync<TestClassCase2>();
+
+            var result = await context.GetAllAsync<TestClassCase2>();
+            Assert.That(result.Count(), Is.EqualTo(0));
+
+            await context.InsertAsync(d);
+
+            result = await context.GetAllAsync<TestClassCase2>();
+            Assert.That(result.Count(), Is.EqualTo(1));
+            var r1 = result.First();
+            Assert.That(r1.Name, Is.EqualTo(d.Name));
+
+            d.Meta = "tag1, tag2";
+            await context.UpdateAsync(d);
+            r1 = await context.GetAsync<TestClassCase2>(d.Id);
+            Assert.That(r1.Meta, Is.EqualTo(d.Meta));
+
+            await context.DeleteAsync(d);
+            result = await context.GetAllAsync<TestClassCase2>();
             Assert.That(result.Count(), Is.EqualTo(0));
         }
     }

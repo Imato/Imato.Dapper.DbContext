@@ -1,0 +1,1 @@
+select instance_name()

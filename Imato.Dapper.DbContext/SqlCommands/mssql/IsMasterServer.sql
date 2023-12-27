@@ -1,0 +1,1 @@
+select top 1 @@SERVERNAME from sys.tables

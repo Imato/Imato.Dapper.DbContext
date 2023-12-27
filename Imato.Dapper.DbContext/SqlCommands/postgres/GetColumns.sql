@@ -1,0 +1,1 @@
+select column_name from table_columns(@tableName) order by 1;

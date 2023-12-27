@@ -20,17 +20,44 @@ namespace Imato.Dapper.DbContext
 
         ContextCommand CommandRequred(string name, IDbConnection connection);
 
+        /// <summary>
+        /// Create new connection
+        /// </summary>
+        /// <param name="connectionString">Connection string or name from appsettings.json</param>
+        /// <returns></returns>
+        IDbConnection Create(string connectionString = "");
+
         string DbName();
 
         Task DeleteAsync<T>(T value) where T : class;
 
         void Dispose();
 
-        Task ExecuteAsync(string command, object[]? formatParameters = null);
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="command">Command name from config or SQL</param>
+        /// <param name="formatParameters"></param>
+        /// <param name="connectionStringName"></param>
+        /// <returns></returns>
+        Task ExecuteAsync(string command, object[]? formatParameters = null, string connectionStringName = "");
+
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="command">Command name from config or SQL</param>
+        /// <param name="parameters"></param>
+        /// <param name="connectionStringName"></param>
+        /// <returns></returns>
+        Task ExecuteAsync(string command, object? parameters = null, string connectionStringName = "");
 
         Task<IEnumerable<T>> GetAllAsync<T>() where T : class;
 
+        Task<T> GetAsync<T>(object key) where T : class;
+
         Task InsertAsync<T>(T value) where T : class;
+
+        Task InsertAsync<T>(IEnumerable<T> values) where T : class;
 
         bool IsDbActive();
 
@@ -88,6 +115,13 @@ namespace Imato.Dapper.DbContext
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
         string DbNameOf<T>();
+
+        /// <summary>
+        /// Connection name of class T
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        string ConnectionNameOf<T>();
 
         /// <summary>
         /// Get columns of tableName

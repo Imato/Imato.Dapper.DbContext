@@ -122,12 +122,12 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="type"></param>
         /// <returns></returns>
-        public static IDictionary<string, string> MappingsOf(Type type)
+        public static IDictionary<string, string>? MappingsOf(Type type)
         {
             var key = $"{type.Name}.";
             return ColumnNames
                 .Where(x => x.Key.StartsWith(key))
-                .ToDictionary(x => x.Key.Split(".")[1], x => x.Value);
+                ?.ToDictionary(x => x.Key.Split(".")[1], x => x.Value);
         }
 
         private static string ColumnNameCache(Type type, string property)

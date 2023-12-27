@@ -2,10 +2,9 @@
 
 namespace Imato.Dapper.DbContext.Test
 {
-    [Connection("postgres")]
-    [Db("unit_tests")]
+    [Connection("mssql")]
     [Table("test_case_2")]
-    public class TestClassCase : IDbObject
+    public class TestClassCase2 : IDbObject
     {
         [ExplicitKey]
         public int Id { get; set; }

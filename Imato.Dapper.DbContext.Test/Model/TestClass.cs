@@ -2,6 +2,7 @@
 
 namespace Imato.Dapper.DbContext.Test
 {
+    [Connection("postgres")]
     [Db("unit_tests")]
     [Table("test_case_1")]
     public class TestClass

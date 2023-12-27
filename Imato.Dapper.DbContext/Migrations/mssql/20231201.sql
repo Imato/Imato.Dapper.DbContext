@@ -1,6 +1,4 @@
-use master
-go
-
+/* Example 
 create proc sp_print
 	@message varchar(max),
 	@level varchar(25) = 'log'
@@ -14,4 +12,7 @@ begin
 	raiserror (@msg, 10, 1) with nowait;
 
 end
+*/
+go
+select getdate()
 go
