@@ -24,6 +24,7 @@ namespace Imato.Dapper.DbContext.Test
             builder.ConfigureLogging((_, logging) =>
             {
                 logging.AddConsole();
+                logging.AddDebug();
             });
             var app = builder.Build();
             _provider = app.Services.CreateScope().ServiceProvider;

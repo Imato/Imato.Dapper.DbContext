@@ -10,7 +10,7 @@ namespace Imato.Dapper.DbContext
     {
         void AddCommand(ContextCommand command);
 
-        Task BulkInsertAsync<T>(IEnumerable<T> values, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000) where T : class;
+        Task BulkInsertAsync<T>(IEnumerable<T> values, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000, bool skipFieldsCheck = false) where T : class;
 
         ContextCommand Command(string name);
 
@@ -25,9 +25,9 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="connectionString">Connection string or name from appsettings.json</param>
         /// <returns></returns>
-        IDbConnection Create(string connectionString = "");
+        IDbConnection Connection(string connectionString = "");
 
-        string DbName();
+        string DbName(string connectionName = "");
 
         Task DeleteAsync<T>(T value) where T : class;
 
@@ -59,9 +59,9 @@ namespace Imato.Dapper.DbContext
 
         Task InsertAsync<T>(IEnumerable<T> values) where T : class;
 
-        bool IsDbActive();
+        bool IsDbActive(string connectionName = "");
 
-        bool IsMasterServer();
+        bool IsMasterServer(string connectionName = "");
 
         /// <summary>
         ///
@@ -88,7 +88,7 @@ namespace Imato.Dapper.DbContext
         /// <param name="command">Command name from config or SQL</param>
         Task<T> QueryFirstAsync<T>(string command, object? parameters = null);
 
-        Task TruncateAsync(string table);
+        Task TruncateAsync(string table, string connectionName = "");
 
         Task TruncateAsync<T>() where T : class;
 

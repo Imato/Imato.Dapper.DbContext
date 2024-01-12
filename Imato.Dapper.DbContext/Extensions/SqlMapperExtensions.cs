@@ -122,7 +122,7 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="type"></param>
         /// <returns></returns>
-        public static IDictionary<string, string>? MappingsOf(Type type)
+        public static Dictionary<string, string>? MappingsOf(Type type)
         {
             var key = $"{type.Name}.";
             return ColumnNames

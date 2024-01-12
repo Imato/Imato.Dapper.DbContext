@@ -12,71 +12,119 @@ namespace Imato.Dapper.DbContext
 {
     public static class BulkCopy
     {
-        private static ConcurrentDictionary<string, Dictionary<string, string>> _mapperColumns = new ConcurrentDictionary<string, Dictionary<string, string>>();
+        private static ConcurrentDictionary<string, Dictionary<string, string>> _mappings = new ConcurrentDictionary<string, Dictionary<string, string>>();
 
-        public static IDictionary<string, string> GetColumnsOf<T>(IEnumerable<string>? columns = null)
+        /// <summary>
+        /// Mapping field of T to table column
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="columns">table columns</param>
+        /// <param name="tableName"></param>
+        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
+        /// <returns></returns>
+        public static IDictionary<string, string?> GetMappingsOf<T>
+            (IEnumerable<string>? columns = null,
+            string? tableName = null,
+            bool skipFieldsCheck = false,
+            IDbConnection? connection = null)
         {
             var typeKey = typeof(T).Name
                 + (columns != null ? ":" + string.Join(",", columns) : "");
-            Dictionary<string, string> mapping;
+            Dictionary<string, string>? mappings;
 
-            if (!_mapperColumns.TryGetValue(typeKey, out mapping))
+            tableName ??= TableAttributeExtensions.RequiredValue<T>();
+            var fields = Objects.GetFieldNames<T>().ToArray();
+
+            if (!_mappings.TryGetValue(typeKey, out mappings))
             {
-                mapping = columns != null
-                    ? columns.ToDictionary(x => x.ToUpper())
-                    : Objects.GetFieldNames<T>(skipChildren: true)
-                        .ToDictionary(x => x.ToUpper());
-                _mapperColumns.TryAdd(typeKey, mapping);
-            }
+                mappings = SqlMapperExtensions.MappingsOf(typeof(T))
+                    ?? new Dictionary<string, string>();
 
-            return mapping;
-        }
-
-        public static IDictionary<string, object?> GetValuesOf<T>(this T data,
-            IEnumerable<string>? columns = null)
-        {
-            var result = Objects.GetFields(obj: data, skipChildren: true);
-            if (columns == null)
-            {
-                return result;
-            }
-
-            foreach (var column in columns)
-            {
-                var key = result.ContainsKey(column)
-                    ? column
-                    : result
-                        .Where(x => x.Key.ToUpper() == column.ToUpper())
-                        .Select(x => x.Key)
-                        .FirstOrDefault();
-
-                if (key != null)
+                if (mappings.Count == 0 && !skipFieldsCheck)
                 {
-                    var value = result[key];
-                    result.Remove(key);
-                    result.Add(column, value);
+                    var cals = columns;
+                    cals ??= connection != null ? GetColumnsAsync(connection, tableName).Result : Enumerable.Empty<string>();
+                    var tableColumns = cals.ToDictionary(x => x.ToUpper());
+                    foreach (var f in fields)
+                    {
+                        if (tableColumns.ContainsKey(f.ToUpper()))
+                        {
+                            mappings.Add(f, tableColumns[f.ToUpper()]);
+                        }
+                    }
+                }
+
+                if (mappings.Count == 0)
+                {
+                    var cs = columns?.ToArray() ?? fields;
+                    for (int i = 0; i < cs.Length; i++)
+                    {
+                        mappings.Add(fields[i], cs[i]);
+                    }
+                }
+
+                if (mappings.Count > 0)
+                {
+                    _mappings.TryAdd(typeKey, mappings);
+                }
+                else
+                {
+                    throw new ApplicationException($"Cannot generate mappings for table {tableName} with columns {string.Join(",", columns)} and type {typeof(T).Name}");
                 }
             }
 
-            return result;
+            return mappings!;
         }
 
+        /// <summary>
+        /// Bulk insert data into table
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="connection"></param>
+        /// <param name="data"></param>
+        /// <param name="tableName">Table name or [Table] attribute in type T</param>
+        /// <param name="columns">Table columns list</param>
+        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
+        /// <returns></returns>
         public static async Task BulkInsertAsync<T>(this IDbConnection connection,
             IEnumerable<T> data,
             string? tableName = null,
-            IEnumerable<string>? columns = null)
+            IEnumerable<string>? columns = null,
+            int bulkCopyTimeoutSeconds = 30,
+            int batchSize = 1_000,
+            bool skipFieldsCheck = false)
         {
             var ns = connection as NpgsqlConnection;
             if (ns != null)
             {
-                await ns.BulkInsertAsync(data, tableName, columns);
+                await Postgres.BulkInsertAsync(ns, data, tableName, columns, skipFieldsCheck);
             }
 
             var ms = connection as SqlConnection;
             if (ms != null)
             {
-                await ms.BulkInsertAsync(data, tableName, columns);
+                await MsSql.BulkInsertAsync(ms, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
             }
+
+            throw new NotImplementedException();
+        }
+
+        public static async Task<IEnumerable<string>> GetColumnsAsync(this IDbConnection connection,
+            string tableName)
+        {
+            var ns = connection as NpgsqlConnection;
+            if (ns != null)
+            {
+                return await Postgres.GetColumnsAsync(ns, tableName);
+            }
+
+            var ms = connection as SqlConnection;
+            if (ms != null)
+            {
+                return await MsSql.GetColumnsAsync(ms, tableName);
+            }
+
+            throw new NotImplementedException();
         }
     }
 }

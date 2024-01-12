@@ -1,1 +1,1 @@
-select instance_name()
+select not(pg_is_in_recovery())

@@ -1,1 +1,1 @@
-select top 1 @@SERVERNAME from sys.tables
+select cast(1 as bit) as result
