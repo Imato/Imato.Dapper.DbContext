@@ -86,7 +86,7 @@ namespace Imato.Dapper.DbContext
         /// <param name="columns">Table columns list</param>
         /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
         /// <returns></returns>
-        public static async Task BulkInsertAsync<T>(this IDbConnection connection,
+        public static Task BulkInsertAsync<T>(this IDbConnection connection,
             IEnumerable<T> data,
             string? tableName = null,
             IEnumerable<string>? columns = null,
@@ -97,13 +97,13 @@ namespace Imato.Dapper.DbContext
             var ns = connection as NpgsqlConnection;
             if (ns != null)
             {
-                await Postgres.BulkInsertAsync(ns, data, tableName, columns, skipFieldsCheck);
+                return Postgres.BulkInsertAsync(ns, data, tableName, columns, skipFieldsCheck);
             }
 
             var ms = connection as SqlConnection;
             if (ms != null)
             {
-                await MsSql.BulkInsertAsync(ms, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+                return MsSql.BulkInsertAsync(ms, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
             }
 
             throw new NotImplementedException();

@@ -483,7 +483,8 @@ namespace Imato.Dapper.DbContext
                 using (var connection = Connection(connectionStringName: connectionName))
                 {
                     var sql = Sql("IsMasterServer", connection);
-                    return connection.QueryFirst<bool>(sql);
+                    return connection.QueryFirst<string>(sql)
+                        .StartsWith(Environment.MachineName);
                 }
             }
             catch
@@ -790,7 +791,7 @@ namespace Imato.Dapper.DbContext
         /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
         /// <exception cref="ApplicationException"></exception>
         /// <exception cref="NotImplementedException"></exception>
-        public async Task BulkInsertAsync<T>(IEnumerable<T> data,
+        public Task BulkInsertAsync<T>(IEnumerable<T> data,
             string? tableName = null,
             IEnumerable<string>? columns = null,
             int bulkCopyTimeoutSeconds = 30,
@@ -805,17 +806,14 @@ namespace Imato.Dapper.DbContext
                 {
                     case ContextVendors.mssql:
                         var mc = (c as SqlConnection) ?? throw new ApplicationException("Wrong connection. Not MSSQL.");
-                        await MsSql.BulkInsertAsync(mc, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
-                        break;
+                        return MsSql.BulkInsertAsync(mc, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
 
                     case ContextVendors.postgres:
                         var nc = (c as NpgsqlConnection) ?? throw new ApplicationException("Wrong connection. Not Postgres.");
-                        await Postgres.BulkInsertAsync(nc, data, tableName, columns, skipFieldsCheck);
-                        break;
-
-                    default:
-                        throw new NotImplementedException($"Cannot use bulk insert for {vendor}");
+                        return Postgres.BulkInsertAsync(nc, data, tableName, columns, skipFieldsCheck);
                 }
+
+                throw new NotImplementedException($"Cannot use bulk insert for {vendor}");
             }
         }
 

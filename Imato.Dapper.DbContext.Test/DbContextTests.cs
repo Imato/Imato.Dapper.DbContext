@@ -23,6 +23,12 @@ namespace Imato.Dapper.DbContext.Test
             context = AppBulder.GetRequiredService<DbContext>();
         }
 
+        [OneTimeTearDown]
+        public void TearDown()
+        {
+            context.Dispose();
+        }
+
         [Test]
         public void ConnectionStringTest()
         {
@@ -46,13 +52,13 @@ namespace Imato.Dapper.DbContext.Test
         [Test]
         public void IsMasterServerTest()
         {
-            Assert.IsTrue(context.IsMasterServer("postgres"));
+            Assert.That(context.IsMasterServer("postgres"), Is.True);
         }
 
         [Test]
         public void IsDbActiveTest()
         {
-            Assert.True(context.IsDbActive("postgres"));
+            Assert.That(context.IsDbActive("postgres"), Is.True);
         }
 
         private async Task CreateTableTest<T>()
@@ -183,12 +189,12 @@ namespace Imato.Dapper.DbContext.Test
             var value = values.First();
             var result = Objects.GetFields(value);
             Assert.That(result.Count(), Is.EqualTo(3));
-            Assert.IsTrue(result.ContainsKey("date"));
+            Assert.That(result.ContainsKey("date"), Is.True);
 
             result = Objects.GetFields(value, fields: "Id,Name,Date,Value".Split(","));
             Assert.That(result.Count(), Is.EqualTo(3));
-            Assert.IsTrue(result.ContainsKey("date"));
-            Assert.IsFalse(result.ContainsKey("value"));
+            Assert.That(result.ContainsKey("date"), Is.True);
+            Assert.That(result.ContainsKey("value"), Is.False);
             Assert.That(result["id"], Is.EqualTo(-100));
         }
 
