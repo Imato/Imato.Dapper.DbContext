@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using Dapper;
+using Imato.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -24,7 +25,10 @@ namespace Imato.Dapper.DbContext
         /// <param name="transaction">The transaction to run under, null (the default) if none</param>
         /// <param name="commandTimeout">Number of seconds before command execution timeout</param>
         /// <returns>Entity of T</returns>
-        public static async Task<T> GetAsync<T>(this IDbConnection connection, dynamic id, IDbTransaction transaction = null, int? commandTimeout = null,
+        public static async Task<T> GetAsync<T>(this IDbConnection connection,
+            dynamic id,
+            IDbTransaction transaction = null,
+            int? commandTimeout = null,
             ILogger? logger = null) where T : class
         {
             var type = typeof(T);
@@ -71,6 +75,56 @@ namespace Imato.Dapper.DbContext
             ((IProxy)obj).IsDirty = false;   //reset change tracking and return
 
             return obj;
+        }
+
+        /// <summary>
+        /// Returns a single entity by a single id from table "Ts" asynchronously using Task. T must be of interface type.
+        /// Id must be marked with [Key] attribute.
+        /// Created entity is tracked/intercepted for changes and used by the Update() extension.
+        /// </summary>
+        /// <typeparam name="T">Interface type to create and populate</typeparam>
+        /// <param name="connection">Open SqlConnection</param>
+        /// <param name="id">Id of the entity to get, must be marked with [Key] attribute</param>
+        /// <param name="transaction">The transaction to run under, null (the default) if none</param>
+        /// <param name="commandTimeout">Number of seconds before command execution timeout</param>
+        /// <returns>Entity of T</returns>
+        public static async Task<IEnumerable<T>> SelectAsync<T>(this IDbConnection connection,
+            string where,
+            dynamic? parameters = null,
+            IDbTransaction transaction = null,
+            int? commandTimeout = null,
+            ILogger? logger = null) where T : class
+        {
+            var type = typeof(T);
+            var table = GetTableName(type);
+            var dynParams = new DynamicParameters();
+            var sql = $"SELECT * FROM {table}";
+            if (!string.IsNullOrEmpty(where))
+            {
+                sql += $" WHERE {where} ";
+                if (parameters != null)
+                {
+                    AddAll(dynParams, parameters);
+                }
+            }
+
+            logger?.LogDebug($"GetAsync, SQL: {sql}");
+            return await connection.QueryAsync<T>(sql: sql, param: dynParams, transaction: transaction, commandTimeout: commandTimeout);
+        }
+
+        private static DynamicParameters AddAll(DynamicParameters param,
+            dynamic? parameters)
+        {
+            if (parameters != null)
+            {
+                var ps = Objects.GetDynamicFields(obj: parameters);
+                foreach (var p in ps)
+                {
+                    param.Add($"@{p.Key}", p.Value);
+                }
+            }
+
+            return param;
         }
 
         /// <summary>

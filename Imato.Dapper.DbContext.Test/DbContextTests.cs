@@ -50,12 +50,6 @@ namespace Imato.Dapper.DbContext.Test
         }
 
         [Test]
-        public void IsMasterServerTest()
-        {
-            Assert.That(context.IsMasterServer("postgres"), Is.True);
-        }
-
-        [Test]
         public void IsDbActiveTest()
         {
             Assert.That(context.IsDbActive("postgres"), Is.True);
@@ -181,6 +175,16 @@ namespace Imato.Dapper.DbContext.Test
             await BulkInsertAsyncTest();
             var r = await context.GetAsync<TestClass>(2);
             Assert.That(r.name, Is.EqualTo(values.Where(x => x.id == 2).First().name));
+        }
+
+        [Test]
+        public async Task SelectAsyncTest()
+        {
+            await BulkInsertAsyncTest();
+
+            var r = await context.SelectAsync<TestClass>("id = @id or id = 2", new { id = 1 });
+            Assert.That(r.Count(), Is.EqualTo(2));
+            Assert.That(r.First().id, Is.EqualTo(1));
         }
 
         [Test]

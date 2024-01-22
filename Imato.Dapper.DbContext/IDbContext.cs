@@ -55,6 +55,8 @@ namespace Imato.Dapper.DbContext
 
         Task<T> GetAsync<T>(object key) where T : class;
 
+        Task<IEnumerable<T>> SelectAsync<T>(string where = null, dynamic? parameters = null) where T : class;
+
         Task InsertAsync<T>(T value) where T : class;
 
         Task InsertAsync<T>(IEnumerable<T> values) where T : class;

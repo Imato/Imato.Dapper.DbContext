@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using MySql.Data.MySqlClient;
 using Npgsql;
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -16,6 +17,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Transactions;
 
 namespace Imato.Dapper.DbContext
 {
@@ -677,10 +679,22 @@ namespace Imato.Dapper.DbContext
             }
         }
 
-        public async Task<T> GetAsync<T>(object key) where T : class
+        public async Task<T> GetAsync<T>(object key)
+            where T : class
         {
             using var c = Connection<T>();
-            return await c.GetAsync<T>(key, logger: Logger);
+            return await c.GetAsync<T>(id: key, logger: Logger);
+        }
+
+        public async Task<IEnumerable<T>> SelectAsync<T>(string where,
+            dynamic? parameters = null)
+            where T : class
+        {
+            using var c = Connection<T>();
+            return await SqlMapperExtensions.SelectAsync<T>(c,
+                where: where,
+                parameters: parameters,
+                logger: Logger);
         }
 
         public async Task<IEnumerable<T>> GetAllAsync<T>() where T : class
