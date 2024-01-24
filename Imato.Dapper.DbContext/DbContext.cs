@@ -56,17 +56,9 @@ namespace Imato.Dapper.DbContext
             _semaphore.Wait();
             if (!_initilized)
             {
-                try
-                {
-                    RegisterTypes(typeof(DbContext).Assembly);
-                    LoadCommands();
-                    RunMigrations().Wait();
-                }
-                catch (Exception ex)
-                {
-                    Logger?.LogError(ex, "DbContext initialization");
-                }
-
+                RegisterTypes(typeof(DbContext).Assembly);
+                LoadCommands();
+                RunMigrations().Wait();
                 _initilized = true;
             }
 
@@ -102,8 +94,9 @@ namespace Imato.Dapper.DbContext
                 }
                 catch (Exception ex)
                 {
-                    Logger?.LogError(ex, $"LoadCommand from {file}");
-                    // Console.Error.WriteLine($"LoadCommand from {file} error: {ex}");
+                    var message = $"Load command from {file}";
+                    Logger?.LogError(ex, message);
+                    throw new ApplicationException(message, ex);
                 }
             }
         }
@@ -186,7 +179,9 @@ namespace Imato.Dapper.DbContext
                         }
                         catch (Exception ex)
                         {
-                            Logger?.LogError(ex, $"Error in migration file {file}");
+                            var message = $"Error in migration file {file}";
+                            Logger?.LogError(ex, message);
+                            throw new ApplicationException(message, ex);
                         }
                     }
                 }
