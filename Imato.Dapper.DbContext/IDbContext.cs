@@ -131,7 +131,13 @@ namespace Imato.Dapper.DbContext
         /// <param name="tableName"></param>
         /// <returns></returns>
         Task<IEnumerable<string>> GetColumnsAsync(
-            string tableName);
+            string tableName,
+            string connectionName = "");
+
+        /// <summary>
+        /// Get columns of tableName
+        /// </summary>
+        Task<IEnumerable<string>> GetColumnsAsync<T>(string connectionName = "");
 
         /// <summary>
         /// Register DB type with columns mapping

@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
 {
-    public static class Postgres
+    public static class PostgresExtensions
     {
         public static string FormatTableName(string tableName)
         {
@@ -34,13 +34,13 @@ namespace Imato.Dapper.DbContext
                 connection.Open();
             }
             tableName ??= TableAttributeExtensions.RequiredValue<T>();
-            tableName = Postgres.FormatTableName(tableName);
+            tableName = PostgresExtensions.FormatTableName(tableName);
 
             var mappings = BulkCopy.GetMappingsOf<T>(columns, tableName, skipFieldsCheck, connection);
             var properties = mappings.Keys.ToArray();
             columns = mappings.Values.ToArray();
 
-            using (var writer = connection.BeginBinaryImport($"copy {Postgres.FormatTableName(tableName)} ({string.Join(",", columns)}) from STDIN (FORMAT BINARY)"))
+            using (var writer = connection.BeginBinaryImport($"copy {PostgresExtensions.FormatTableName(tableName)} ({string.Join(",", columns)}) from STDIN (FORMAT BINARY)"))
             {
                 foreach (var d in data)
                 {

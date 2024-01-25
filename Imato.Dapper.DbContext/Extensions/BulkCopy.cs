@@ -97,13 +97,13 @@ namespace Imato.Dapper.DbContext
             var ns = connection as NpgsqlConnection;
             if (ns != null)
             {
-                return Postgres.BulkInsertAsync(ns, data, tableName, columns, skipFieldsCheck);
+                return PostgresExtensions.BulkInsertAsync(ns, data, tableName, columns, skipFieldsCheck);
             }
 
             var ms = connection as SqlConnection;
             if (ms != null)
             {
-                return MsSql.BulkInsertAsync(ms, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+                return MsSqlExtensions.BulkInsertAsync(ms, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
             }
 
             throw new NotImplementedException();
@@ -115,13 +115,13 @@ namespace Imato.Dapper.DbContext
             var ns = connection as NpgsqlConnection;
             if (ns != null)
             {
-                return await Postgres.GetColumnsAsync(ns, tableName);
+                return await PostgresExtensions.GetColumnsAsync(ns, tableName);
             }
 
             var ms = connection as SqlConnection;
             if (ms != null)
             {
-                return await MsSql.GetColumnsAsync(ms, tableName);
+                return await MsSqlExtensions.GetColumnsAsync(ms, tableName);
             }
 
             throw new NotImplementedException();

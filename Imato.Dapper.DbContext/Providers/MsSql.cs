@@ -1,5 +1,6 @@
 ﻿using Dapper;
 using Imato.Reflection;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
@@ -8,14 +9,17 @@ using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
 {
-    public static class MsSql
+    public class MsSql : IContextVendor
     {
-        public static string FormatTableName(string tableName)
+        public ContextVendors Vendor => ContextVendors.mssql;
+
+        public string FormatTableName(string tableName, string? schema = null)
         {
-            return tableName.Contains(".") ? tableName : "dbo." + tableName;
+            return tableName.Contains(".") ? tableName : (schema ?? "dbo") + "." + tableName;
         }
 
-        public static async Task<IEnumerable<string>> GetColumnsAsync(SqlConnection connection,
+        public async Task<IEnumerable<string>> GetColumnsAsync(
+            IDbConnection connection,
             string tableName)
         {
             tableName = FormatTableName(tableName);
@@ -23,7 +27,7 @@ namespace Imato.Dapper.DbContext
             return await connection.QueryAsync<string>(sql, new { tableName });
         }
 
-        private static SqlBulkCopy BuildSqlBulkCopy<T>(SqlConnection connection,
+        private SqlBulkCopy BuildSqlBulkCopy<T>(IDbConnection connection,
             string tableName,
             IDictionary<string, string> mappings,
             int bulkCopyTimeoutSeconds,
@@ -33,7 +37,10 @@ namespace Imato.Dapper.DbContext
             {
                 connection.Open();
             }
-            var bulk = new SqlBulkCopy(connection);
+
+            var sqlConnection = (connection as SqlConnection)
+                ?? throw new ApplicationException("Wrong connection type");
+            var bulk = new SqlBulkCopy(sqlConnection);
 
             foreach (var m in mappings)
             {
@@ -50,7 +57,7 @@ namespace Imato.Dapper.DbContext
             return bulk;
         }
 
-        public static async Task BulkInsertAsync<T>(this SqlConnection connection,
+        public async Task BulkInsertAsync<T>(IDbConnection connection,
             IEnumerable<T> data,
             string? tableName = null,
             IEnumerable<string>? columns = null,
@@ -64,14 +71,13 @@ namespace Imato.Dapper.DbContext
 
             using (var bulk = BuildSqlBulkCopy<T>(connection, tableName, mappings, bulkCopyTimeoutSeconds, batchSize))
             {
-                var table = new DataTable()
-                    .AddColumns<T>(mappings.Keys);
+                var table = AddColumns(new DataTable(), mappings.Keys);
 
                 var fields = mappings.Keys.ToArray();
                 foreach (var r in data)
                 {
                     var row = table.NewRow();
-                    row.AddColumns(r, fields);
+                    row = AddColumns(row, r, fields);
                     table.Rows.Add(row);
                     rowCount++;
 
@@ -90,7 +96,7 @@ namespace Imato.Dapper.DbContext
             }
         }
 
-        private static DataTable AddColumns<T>(this DataTable table, IEnumerable<string> fields)
+        private DataTable AddColumns(DataTable table, IEnumerable<string> fields)
         {
             foreach (var f in fields)
             {
@@ -103,7 +109,7 @@ namespace Imato.Dapper.DbContext
             return table;
         }
 
-        private static DataRow AddColumns<T>(this DataRow row, T data, string[] fields)
+        private DataRow AddColumns<T>(DataRow row, T data, string[] fields)
         {
             foreach (var v in Objects.GetFields(obj: data, fields: fields, skipChildren: true))
             {

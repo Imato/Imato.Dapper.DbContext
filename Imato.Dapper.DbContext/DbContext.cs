@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using MySql.Data.MySqlClient;
 using Npgsql;
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -17,7 +16,6 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Transactions;
 
 namespace Imato.Dapper.DbContext
 {
@@ -32,6 +30,14 @@ namespace Imato.Dapper.DbContext
         protected readonly ILogger? Logger;
         protected readonly IConfiguration Configuration;
         protected static List<ContextCommand> ContextCommands = new List<ContextCommand>();
+
+        private static Dictionary<ContextVendors, IContextVendor> contextVendors =
+            new IContextVendor[]
+            {
+                new MsSql(),
+                new Postgres(),
+                new MySql(),
+            }.ToDictionary(x => x.Vendor);
 
         public DbContext(
             IConfiguration configuration,
@@ -71,6 +77,9 @@ namespace Imato.Dapper.DbContext
                 Assembly.GetExecutingAssembly().Location);
             folder = Path.Combine(folder, "SqlCommands");
 
+            if (!Directory.Exists(folder))
+                return;
+
             foreach (var file in new DirectoryInfo(folder)
                         .GetFiles("*.sql", SearchOption.AllDirectories)
                         .OrderBy(x => x.LastWriteTime)
@@ -106,6 +115,9 @@ namespace Imato.Dapper.DbContext
             var folder = Path.GetDirectoryName(
                 Assembly.GetExecutingAssembly().Location);
             folder = Path.Combine(folder, "Migrations");
+
+            if (!Directory.Exists(folder))
+                return;
 
             var connections = ConnectionStrings()
                 .ToDictionary(x => x.Vendor.ToString(), x => Connection(x.String));
@@ -617,6 +629,12 @@ namespace Imato.Dapper.DbContext
             }
         }
 
+        protected IContextVendor GetVendor(IDbConnection? connection = null)
+        {
+            var vendor = Vendor(connection);
+            return contextVendors[vendor];
+        }
+
         protected T Try<T>(Func<T> func,
             string sql,
             string? command = null)
@@ -723,11 +741,11 @@ namespace Imato.Dapper.DbContext
             switch (Vendor(connection))
             {
                 case ContextVendors.mssql:
-                    sql += " table " + MsSql.FormatTableName(table);
+                    sql += " table " + MsSqlExtensions.FormatTableName(table);
                     break;
 
                 case ContextVendors.postgres:
-                    sql += " " + Postgres.FormatTableName(table) + " restart identity";
+                    sql += " " + PostgresExtensions.FormatTableName(table) + " restart identity";
                     break;
 
                 case ContextVendors.mysql:
@@ -810,19 +828,8 @@ namespace Imato.Dapper.DbContext
         {
             using (var c = Connection<T>())
             {
-                var vendor = Vendor(c);
-                switch (vendor)
-                {
-                    case ContextVendors.mssql:
-                        var mc = (c as SqlConnection) ?? throw new ApplicationException("Wrong connection. Not MSSQL.");
-                        return MsSql.BulkInsertAsync(mc, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
-
-                    case ContextVendors.postgres:
-                        var nc = (c as NpgsqlConnection) ?? throw new ApplicationException("Wrong connection. Not Postgres.");
-                        return Postgres.BulkInsertAsync(nc, data, tableName, columns, skipFieldsCheck);
-                }
-
-                throw new NotImplementedException($"Cannot use bulk insert for {vendor}");
+                var vendor = GetVendor(c);
+                return vendor.BulkInsertAsync(c, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
             }
         }
 
@@ -873,10 +880,23 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="tableName"></param>
         /// <returns></returns>
-        public async Task<IEnumerable<string>> GetColumnsAsync(
-            string tableName)
+        public Task<IEnumerable<string>> GetColumnsAsync(
+            string tableName,
+            string connectionName = "")
         {
-            return await QueryAsync<string>("GetColumns", new { tableName });
+            var connection = Connection(connectionName);
+            var vendor = Vendor(connection);
+            return contextVendors[vendor].GetColumnsAsync(connection, tableName);
+        }
+
+        /// <summary>
+        /// Get columns of tableName
+        /// </summary>
+        /// <returns></returns>
+        public Task<IEnumerable<string>> GetColumnsAsync<T>(string connectionName = "")
+        {
+            var table = TableAttributeExtensions.RequiredValue<T>();
+            return GetColumnsAsync(table, connectionName);
         }
 
         /// <summary>
