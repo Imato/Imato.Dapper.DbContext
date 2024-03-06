@@ -370,8 +370,7 @@ namespace Imato.Dapper.DbContext
         {
             var user = DbUser();
             var password = DbUserPassword();
-            var cs = Connection(connectionString, dataBase, user, password);
-            return cs;
+            return Connection(connectionString, dataBase, user, password);
         }
 
         /// <summary>
@@ -422,6 +421,7 @@ namespace Imato.Dapper.DbContext
                     (_, old) => IsReady(old) ? old : connection);
             }
 
+            Logger?.LogDebug($"Using connection: {connection.ConnectionString}");
             return connection;
         }
 

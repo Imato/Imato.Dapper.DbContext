@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
 using System.Data;
 
 using System.Threading.Tasks;
@@ -21,6 +22,7 @@ namespace Imato.Dapper.DbContext
             IEnumerable<string>? columns = null,
             int bulkCopyTimeoutSeconds = 30,
             int batchSize = 10000,
-            bool skipFieldsCheck = false);
+            bool skipFieldsCheck = false,
+            ILogger? logger = null);
     }
 }

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Threading.Tasks;
@@ -9,7 +10,7 @@ namespace Imato.Dapper.DbContext
     {
         public ContextVendors Vendor => ContextVendors.mysql;
 
-        public Task BulkInsertAsync<T>(IDbConnection connection, IEnumerable<T> data, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000, bool skipFieldsCheck = false)
+        public Task BulkInsertAsync<T>(IDbConnection connection, IEnumerable<T> data, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000, bool skipFieldsCheck = false, ILogger? logger = null)
         {
             throw new NotImplementedException();
         }

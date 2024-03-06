@@ -1,5 +1,6 @@
 ﻿using Dapper;
 using Imato.Reflection;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -63,11 +64,13 @@ namespace Imato.Dapper.DbContext
             IEnumerable<string>? columns = null,
             int bulkCopyTimeoutSeconds = 30,
             int batchSize = 10000,
-            bool skipFieldsCheck = false)
+            bool skipFieldsCheck = false,
+            ILogger? logger = null)
         {
             var rowCount = 0;
             tableName ??= TableAttributeExtensions.RequiredValue<T>();
             var mappings = BulkCopy.GetMappingsOf<T>(columns, tableName, skipFieldsCheck, connection);
+            logger?.LogDebug($"BulkInsert. Using mapping object -> column: {mappings.Serialize()}");
 
             using (var bulk = BuildSqlBulkCopy<T>(connection, tableName, mappings, bulkCopyTimeoutSeconds, batchSize))
             {
@@ -83,6 +86,7 @@ namespace Imato.Dapper.DbContext
 
                     if (rowCount > bulk.BatchSize)
                     {
+                        logger?.LogDebug($"BulkInsert {rowCount} rows");
                         await bulk.WriteToServerAsync(table);
                         table.Clear();
                         rowCount = 0;
@@ -91,6 +95,7 @@ namespace Imato.Dapper.DbContext
 
                 if (rowCount > 0)
                 {
+                    logger?.LogDebug($"BulkInsert {rowCount} rows");
                     await bulk.WriteToServerAsync(table);
                 }
             }

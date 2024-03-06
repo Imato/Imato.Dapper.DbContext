@@ -1,5 +1,6 @@
 ﻿using Dapper;
 using Imato.Reflection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using System;
 using System.Collections.Generic;
@@ -26,13 +27,14 @@ namespace Imato.Dapper.DbContext
             return connection.QueryAsync<string>(sql, new { tableName });
         }
 
-        public async Task BulkInsertAsync<T>(IDbConnection connection,
+        public Task BulkInsertAsync<T>(IDbConnection connection,
             IEnumerable<T> data,
             string? tableName = null,
             IEnumerable<string>? columns = null,
             int bulkCopyTimeoutSeconds = 30,
             int batchSize = 10000,
-            bool skipFieldsCheck = false)
+            bool skipFieldsCheck = false,
+            ILogger? logger = null)
         {
             var pgConnection = (connection as NpgsqlConnection)
                 ?? throw new ApplicationException("Wrong connection type");
@@ -45,23 +47,27 @@ namespace Imato.Dapper.DbContext
             tableName = PostgresExtensions.FormatTableName(tableName);
 
             var mappings = BulkCopy.GetMappingsOf<T>(columns, tableName, skipFieldsCheck, connection);
+            logger?.LogDebug($"BulkInsert. Using mapping object -> column: {mappings.Serialize()}");
             var properties = mappings.Keys.ToArray();
             columns = mappings.Values.ToArray();
 
             using (var writer = pgConnection.BeginBinaryImport($"copy {PostgresExtensions.FormatTableName(tableName)} ({string.Join(",", columns)}) from STDIN (FORMAT BINARY)"))
             {
+                writer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeoutSeconds);
                 foreach (var d in data)
                 {
                     writer.StartRow();
                     foreach (var p in properties)
                     {
                         var v = Objects.GetField(d, p);
-                        await writer.WriteAsync(v);
+                        writer.Write(v);
                     }
                 }
 
                 writer.Complete();
             }
+
+            return Task.CompletedTask;
         }
     }
 }
