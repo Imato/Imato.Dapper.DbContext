@@ -2,6 +2,7 @@
 using Imato.Reflection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using NpgsqlTypes;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -59,8 +60,32 @@ namespace Imato.Dapper.DbContext
                     writer.StartRow();
                     foreach (var p in properties)
                     {
-                        var v = Objects.GetField(d, p);
-                        writer.Write(v);
+                        var value = Objects.GetField(d, p);
+                        if (value != null)
+                        {
+                            switch (value.GetType().Name)
+                            {
+                                case nameof(DateTime):
+                                    writer.Write(value, NpgsqlDbType.Timestamp);
+                                    break;
+
+                                case nameof(Boolean):
+                                    writer.Write(value, NpgsqlDbType.Boolean);
+                                    break;
+
+                                case nameof(Int16):
+                                    writer.Write(value, NpgsqlDbType.Smallint);
+                                    break;
+
+                                default:
+                                    writer.Write(value);
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            writer.WriteNull();
+                        }
                     }
                 }
 

@@ -62,7 +62,8 @@ namespace Imato.Dapper.DbContext
             _semaphore.Wait();
             if (!_initilized)
             {
-                RegisterTypes(typeof(DbContext).Assembly);
+                RegisterTypes(GetType().Assembly);
+                RegisterTypes(Assembly.GetExecutingAssembly());
                 LoadCommands();
                 RunMigrations().Wait();
                 _initilized = true;
@@ -230,13 +231,14 @@ namespace Imato.Dapper.DbContext
 
         protected string? ConnectionString(string name = "")
         {
-            return _connectionString ??
+            var str = _connectionString ??
                 Configuration
                 ?.GetSection("ConnectionStrings")
                 ?.GetChildren()
                 ?.FirstOrDefault(x => string.IsNullOrEmpty(name)
                     || x.Key.Equals(name, StringComparison.InvariantCultureIgnoreCase))
                 ?.Value;
+            return AppEnvironment.GetVariables(str);
         }
 
         protected string RequiredConnectionString(string name = "")
