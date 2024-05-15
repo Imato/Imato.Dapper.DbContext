@@ -19,6 +19,32 @@ namespace Imato.Dapper.DbContext
             return tableName.Contains(".") ? tableName : (schema ?? "dbo") + "." + tableName;
         }
 
+        public IDbConnection CreateConnection(string connectionString)
+        {
+            return new SqlConnection(connectionString);
+        }
+
+        public IDbConnection CreateConnection(string connectionString,
+            string dataBase = "",
+            string user = "",
+            string password = "")
+        {
+            var sb = new SqlConnectionStringBuilder(connectionString);
+            sb.InitialCatalog = dataBase != "" ? dataBase : sb.InitialCatalog;
+            sb.UserID = string.IsNullOrEmpty(sb.UserID) ? user : sb.UserID;
+            sb.Password = string.IsNullOrEmpty(sb.Password) ? password : sb.Password;
+            return new SqlConnection(sb.ConnectionString);
+        }
+
+        public async Task<string?> FindTableAsync(
+            IDbConnection connection,
+            string tableName)
+        {
+            tableName = FormatTableName(tableName);
+            var sql = $"select top 1 schema_name(schema_id) + '.' + name from sys.tables where object_id = object_id(@tableName)";
+            return await connection.QuerySingleOrDefaultAsync<string>(sql, new { tableName });
+        }
+
         public async Task<IEnumerable<string>> GetColumnsAsync(
             IDbConnection connection,
             string tableName)

@@ -23,7 +23,7 @@ namespace Imato.Dapper.DbContext
     {
         private readonly string? _connectionString;
         private string _dbName = "";
-        private static ConcurrentDictionary<string, IDbConnection> _pool = new ConcurrentDictionary<string, IDbConnection>();
+        private static ConcurrentDictionary<string, IDbConnection> _connectionPool = new ConcurrentDictionary<string, IDbConnection>();
         private static SemaphoreSlim _semaphore = new SemaphoreSlim(1);
         private static bool _initilized = false;
 
@@ -249,7 +249,7 @@ namespace Imato.Dapper.DbContext
 
         protected IEnumerable<ConnectionString> ConnectionStrings()
         {
-            return Configuration
+            var array = Configuration
                     ?.GetSection("ConnectionStrings")
                     ?.GetChildren()
                     ?.Select(c => new ConnectionString
@@ -270,6 +270,12 @@ namespace Imato.Dapper.DbContext
                             }
                         }
                         : Array.Empty<ConnectionString>());
+
+            return array.Select(x =>
+            {
+                x.String = AppEnvironment.GetVariables(x.String);
+                return x;
+            });
         }
 
         protected ContextVendors Vendor(IDbConnection? connection)
@@ -301,24 +307,6 @@ namespace Imato.Dapper.DbContext
             throw new InvalidOperationException($"Unknown context vendor for string: {connectionString}");
         }
 
-        protected string DbUser()
-        {
-            var name = Configuration
-                ?.GetSection("Environment:DbUser")
-                ?.Value;
-            return string.IsNullOrEmpty(name) ? ""
-                    : Environment.GetEnvironmentVariable(name) ?? "";
-        }
-
-        protected string DbUserPassword()
-        {
-            var name = Configuration
-                ?.GetSection("Environment:DbUserPassword")
-                ?.Value;
-            return string.IsNullOrEmpty(name) ? ""
-                    : Environment.GetEnvironmentVariable(name) ?? "";
-        }
-
         public static IDbConnection GetConnection(string connectionString,
            string dataBase,
            string user,
@@ -330,32 +318,8 @@ namespace Imato.Dapper.DbContext
             }
 
             connectionString = AppEnvironment.GetVariables(connectionString);
-
-            switch (Vendor(connectionString))
-            {
-                case ContextVendors.mssql:
-                    var sb = new SqlConnectionStringBuilder(connectionString);
-                    sb.InitialCatalog = dataBase != "" ? dataBase : sb.InitialCatalog;
-                    sb.UserID = string.IsNullOrEmpty(sb.UserID) ? user : sb.UserID;
-                    sb.Password = string.IsNullOrEmpty(sb.Password) ? password : sb.Password;
-                    return new SqlConnection(sb.ConnectionString);
-
-                case ContextVendors.postgres:
-                    var nb = new NpgsqlConnectionStringBuilder(connectionString);
-                    nb.Database = dataBase != "" ? dataBase : nb.Database;
-                    nb.Username = string.IsNullOrEmpty(nb.Username) ? user : nb.Username;
-                    nb.Password = string.IsNullOrEmpty(nb.Password) ? password : nb.Password;
-                    return new NpgsqlConnection(nb.ConnectionString);
-
-                case ContextVendors.mysql:
-                    var mb = new MySqlConnectionStringBuilder(connectionString);
-                    mb.Database = dataBase != "" ? dataBase : mb.Database;
-                    mb.UserID = string.IsNullOrEmpty(mb.UserID) ? user : mb.UserID;
-                    mb.Password = string.IsNullOrEmpty(mb.Password) ? password : mb.Password;
-                    return new MySqlConnection(mb.ConnectionString);
-            }
-
-            throw new ArgumentOutOfRangeException($"Unknown vendor in connection string {connectionString}");
+            var vendor = contextVendors[Vendor(connectionString)];
+            return vendor.CreateConnection(connectionString, dataBase, user, password);
         }
 
         public IDbConnection Connection(string connectionString,
@@ -370,9 +334,7 @@ namespace Imato.Dapper.DbContext
         public IDbConnection Connection(string connectionString = "",
             string dataBase = "")
         {
-            var user = DbUser();
-            var password = DbUserPassword();
-            return Connection(connectionString, dataBase, user, password);
+            return Connection(connectionString, dataBase, "", "");
         }
 
         /// <summary>
@@ -407,10 +369,10 @@ namespace Imato.Dapper.DbContext
             string connectionStringName = "")
         {
             if (!string.IsNullOrEmpty(connectionName)
-                && _pool.ContainsKey(connectionName)
-                && IsReady(_pool[connectionName]))
+                && _connectionPool.ContainsKey(connectionName)
+                && IsReady(_connectionPool[connectionName]))
             {
-                return _pool[connectionName];
+                return _connectionPool[connectionName];
             }
 
             var connectionString = RequiredConnectionString(connectionStringName);
@@ -418,7 +380,7 @@ namespace Imato.Dapper.DbContext
 
             if (!string.IsNullOrEmpty(connectionName))
             {
-                _pool.AddOrUpdate(connectionName,
+                _connectionPool.AddOrUpdate(connectionName,
                     (_) => connection,
                     (_, old) => IsReady(old) ? old : connection);
             }
@@ -441,7 +403,7 @@ namespace Imato.Dapper.DbContext
                 throw new ArgumentOutOfRangeException($"Cannot find connection string for vendor {vendor}");
             }
 
-            return Connection(cs, "", DbUser(), DbUserPassword());
+            return Connection(cs, "");
         }
 
         public ContextCommand Command(string name)
@@ -765,9 +727,9 @@ namespace Imato.Dapper.DbContext
             await TruncateAsync(c, TableNameOf<T>());
         }
 
-        public async Task TruncateAsync(string table, string connectionName = "")
+        public async Task TruncateAsync(string table, string connectionStringName = "")
         {
-            using var c = Connection(connectionName: connectionName);
+            using var c = Connection(connectionStringName: connectionStringName);
             await TruncateAsync(c, table);
         }
 
@@ -810,6 +772,19 @@ namespace Imato.Dapper.DbContext
             await c.DeleteAsync(value, logger: Logger);
         }
 
+        private Task BulkInsertAsync<T>(IDbConnection connection,
+            IEnumerable<T> data,
+            string? tableName = null,
+            IEnumerable<string>? columns = null,
+            int bulkCopyTimeoutSeconds = 30,
+            int batchSize = 10000,
+            bool skipFieldsCheck = false)
+            where T : class
+        {
+            var vendor = GetVendor(connection);
+            return vendor.BulkInsertAsync(connection, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+        }
+
         /// <summary>
         /// Bulk insert data into table
         /// </summary>
@@ -818,8 +793,6 @@ namespace Imato.Dapper.DbContext
         /// <param name="tableName">Table name or [Table] attribute in type T</param>
         /// <param name="columns">Table columns list</param>
         /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
-        /// <exception cref="ApplicationException"></exception>
-        /// <exception cref="NotImplementedException"></exception>
         public Task BulkInsertAsync<T>(IEnumerable<T> data,
             string? tableName = null,
             IEnumerable<string>? columns = null,
@@ -830,14 +803,38 @@ namespace Imato.Dapper.DbContext
         {
             using (var c = Connection<T>())
             {
-                var vendor = GetVendor(c);
-                return vendor.BulkInsertAsync(c, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+                return BulkInsertAsync(c, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+            }
+        }
+
+        /// <summary>
+        ///
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="data"></param>
+        /// <param name="connectionStringName"></param>
+        /// <param name="tableName">Table name or [Table] attribute in type T</param>
+        /// <param name="columns">Table columns list</param>
+        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
+
+        public Task BulkInsertAsync<T>(IEnumerable<T> data,
+            string? connectionStringName,
+            string? tableName,
+            IEnumerable<string>? columns = null,
+            int bulkCopyTimeoutSeconds = 30,
+            int batchSize = 10000,
+            bool skipFieldsCheck = false)
+            where T : class
+        {
+            using (var c = Connection(connectionStringName: connectionStringName ?? ""))
+            {
+                return BulkInsertAsync(c, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
             }
         }
 
         public void Dispose()
         {
-            foreach (var p in _pool)
+            foreach (var p in _connectionPool)
             {
                 if (p.Value.State != ConnectionState.Closed)
                 {
@@ -875,6 +872,27 @@ namespace Imato.Dapper.DbContext
         public string ConnectionNameOf<T>()
         {
             return ConnectionAttribute.RequiredValue<T>();
+        }
+
+        /// <summary>
+        /// Find table in all connections by name
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        public async Task<(IDbConnection? connection, string? tableName)> FindTableAsync(string name)
+        {
+            foreach (var c in ConnectionStrings())
+            {
+                var vendor = contextVendors[c.Vendor];
+                var connection = vendor.CreateConnection(c.String);
+                var tableName = await vendor.FindTableAsync(connection, name);
+                if (tableName != null)
+                {
+                    return (connection, tableName);
+                }
+            }
+
+            return (null, null);
         }
 
         /// <summary>

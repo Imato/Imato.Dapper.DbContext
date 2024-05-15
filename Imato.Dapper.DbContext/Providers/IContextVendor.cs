@@ -10,8 +10,21 @@ namespace Imato.Dapper.DbContext
     {
         ContextVendors Vendor { get; }
 
+        IDbConnection CreateConnection(string connectionString);
+
+        IDbConnection CreateConnection(string connectionString,
+            string dataBase = "",
+            string user = "",
+            string password = "");
+
         string FormatTableName(string tableName, string? schema = null);
 
+        /// <summary>
+        /// Table columns
+        /// </summary>
+        /// <param name="connection"></param>
+        /// <param name="tableName"></param>
+        /// <returns></returns>
         Task<IEnumerable<string>> GetColumnsAsync(
             IDbConnection connection,
             string tableName);
@@ -24,5 +37,15 @@ namespace Imato.Dapper.DbContext
             int batchSize = 10000,
             bool skipFieldsCheck = false,
             ILogger? logger = null);
+
+        /// <summary>
+        /// Try find table by name
+        /// </summary>
+        /// <param name="connection"></param>
+        /// <param name="tableName"></param>
+        /// <returns></returns>
+        Task<string?> FindTableAsync(
+            IDbConnection connection,
+            string tableName);
     }
 }

@@ -10,7 +10,33 @@ namespace Imato.Dapper.DbContext
     {
         void AddCommand(ContextCommand command);
 
+        /// <summary>
+        /// Bulk insert data into table
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="data"></param>
+        /// <param name="tableName">Table name or [Table] attribute in type T</param>
+        /// <param name="columns">Table columns list</param>
+        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
         Task BulkInsertAsync<T>(IEnumerable<T> values, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000, bool skipFieldsCheck = false) where T : class;
+
+        /// <summary>
+        /// Bulk insert data into table
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="data"></param>
+        /// <param name="connectionStringName"></param>
+        /// <param name="tableName">Table name or [Table] attribute in type T</param>
+        /// <param name="columns">Table columns list</param>
+        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
+        Task BulkInsertAsync<T>(IEnumerable<T> data,
+            string connectionStringName,
+            string tableName,
+            IEnumerable<string>? columns = null,
+            int bulkCopyTimeoutSeconds = 30,
+            int batchSize = 10000,
+            bool skipFieldsCheck = false)
+            where T : class;
 
         ContextCommand Command(string name);
 
@@ -138,6 +164,13 @@ namespace Imato.Dapper.DbContext
         /// Get columns of tableName
         /// </summary>
         Task<IEnumerable<string>> GetColumnsAsync<T>(string connectionName = "");
+
+        /// <summary>
+        /// Find table in all connections by name
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        Task<(IDbConnection? connection, string? tableName)> FindTableAsync(string name);
 
         /// <summary>
         /// Register DB type with columns mapping

@@ -20,6 +20,32 @@ namespace Imato.Dapper.DbContext
             return tableName.Contains(".") ? tableName : (schema ?? "public") + "." + tableName;
         }
 
+        public IDbConnection CreateConnection(string connectionString)
+        {
+            return new NpgsqlConnection(connectionString);
+        }
+
+        public IDbConnection CreateConnection(string connectionString,
+            string dataBase = "",
+            string user = "",
+            string password = "")
+        {
+            var nb = new NpgsqlConnectionStringBuilder(connectionString);
+            nb.Database = dataBase != "" ? dataBase : nb.Database;
+            nb.Username = string.IsNullOrEmpty(nb.Username) ? user : nb.Username;
+            nb.Password = string.IsNullOrEmpty(nb.Password) ? password : nb.Password;
+            return new NpgsqlConnection(nb.ConnectionString);
+        }
+
+        public async Task<string?> FindTableAsync(
+            IDbConnection connection,
+            string tableName)
+        {
+            tableName = FormatTableName(tableName);
+            var sql = $"select table_schema ||  '.' || table_name from information_schema.tables where table_schema ||  '.' || table_name = @tableName limit 1;";
+            return await connection.QuerySingleOrDefaultAsync<string>(sql, new { tableName });
+        }
+
         public Task<IEnumerable<string>> GetColumnsAsync(IDbConnection connection,
             string tableName)
         {
@@ -66,7 +92,15 @@ namespace Imato.Dapper.DbContext
                             switch (value.GetType().Name)
                             {
                                 case nameof(DateTime):
-                                    writer.Write(value, NpgsqlDbType.Timestamp);
+                                    var date = (DateTime)value;
+                                    if (date.Kind == DateTimeKind.Utc)
+                                    {
+                                        writer.Write(date, NpgsqlDbType.TimestampTz);
+                                    }
+                                    else
+                                    {
+                                        writer.Write(date, NpgsqlDbType.Timestamp);
+                                    }
                                     break;
 
                                 case nameof(Boolean):
