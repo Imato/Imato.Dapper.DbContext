@@ -85,6 +85,8 @@ namespace Imato.Dapper.DbContext
 
         Task InsertAsync<T>(T value) where T : class;
 
+        Task UpsertAsync<T>(T value) where T : class;
+
         Task InsertAsync<T>(IEnumerable<T> values) where T : class;
 
         bool IsDbActive(string connectionName = "");

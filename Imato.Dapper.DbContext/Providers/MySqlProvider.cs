@@ -7,13 +7,17 @@ using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
 {
-    public class MySql : IContextVendor
+    public class MySqlProvider : BaseContextProvider, IContextProvider
     {
+        public MySqlProvider(string? connectionString = null) : base(connectionString)
+        {
+        }
+
         public ContextVendors Vendor => ContextVendors.mysql;
 
-        public IDbConnection CreateConnection(string connectionString)
+        public override IDbConnection CreateConnection(string? connectionString = null)
         {
-            return new MySqlConnection(connectionString);
+            return new MySqlConnection(ConnectionString ?? connectionString);
         }
 
         public IDbConnection CreateConnection(string connectionString,

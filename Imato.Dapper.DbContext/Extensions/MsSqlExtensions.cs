@@ -7,7 +7,7 @@ namespace Imato.Dapper.DbContext
 {
     public static class MsSqlExtensions
     {
-        private static MsSql msSql = new MsSql();
+        private static MsSqlProvider msSql = new MsSqlProvider();
 
         public static string FormatTableName(string tableName)
         {

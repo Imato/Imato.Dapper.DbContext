@@ -6,11 +6,11 @@ using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
 {
-    public interface IContextVendor
+    public interface IContextProvider
     {
         ContextVendors Vendor { get; }
 
-        IDbConnection CreateConnection(string connectionString);
+        IDbConnection CreateConnection(string? connectionString = null);
 
         IDbConnection CreateConnection(string connectionString,
             string dataBase = "",
@@ -47,5 +47,7 @@ namespace Imato.Dapper.DbContext
         Task<string?> FindTableAsync(
             IDbConnection connection,
             string tableName);
+
+        Task ExecuteAsync(string sql, int timeout = 3600);
     }
 }

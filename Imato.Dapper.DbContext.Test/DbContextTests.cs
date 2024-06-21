@@ -1,4 +1,5 @@
 using Imato.Reflection;
+using Microsoft.Extensions.Configuration;
 using System.Data;
 
 namespace Imato.Dapper.DbContext.Test

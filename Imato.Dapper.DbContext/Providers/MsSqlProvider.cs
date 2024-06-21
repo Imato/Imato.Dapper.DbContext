@@ -10,8 +10,12 @@ using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
 {
-    public class MsSql : IContextVendor
+    public class MsSqlProvider : BaseContextProvider, IContextProvider
     {
+        public MsSqlProvider(string? connectionString = null) : base(connectionString)
+        {
+        }
+
         public ContextVendors Vendor => ContextVendors.mssql;
 
         public string FormatTableName(string tableName, string? schema = null)
@@ -19,9 +23,9 @@ namespace Imato.Dapper.DbContext
             return tableName.Contains(".") ? tableName : (schema ?? "dbo") + "." + tableName;
         }
 
-        public IDbConnection CreateConnection(string connectionString)
+        public override IDbConnection CreateConnection(string? connectionString = null)
         {
-            return new SqlConnection(connectionString);
+            return new SqlConnection(ConnectionString ?? connectionString);
         }
 
         public IDbConnection CreateConnection(string connectionString,

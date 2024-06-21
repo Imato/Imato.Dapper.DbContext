@@ -16,9 +16,9 @@ $$ language plpgsql security definer;
 
 create or replace function iif(
 	condition bool,
-	value1 text,
-	value2 text)
-returns text 
+	value1 anyelement,
+	value2 anyelement)
+returns anyelement 
 language plpgsql
 as $$
 begin 

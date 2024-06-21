@@ -11,8 +11,12 @@ using System.Threading.Tasks;
 
 namespace Imato.Dapper.DbContext
 {
-    public class Postgres : IContextVendor
+    public class PostgresProvider : BaseContextProvider, IContextProvider
     {
+        public PostgresProvider(string? connectionString = null) : base(connectionString)
+        {
+        }
+
         public ContextVendors Vendor => ContextVendors.postgres;
 
         public string FormatTableName(string tableName, string? schema = null)
@@ -20,9 +24,9 @@ namespace Imato.Dapper.DbContext
             return tableName.Contains(".") ? tableName : (schema ?? "public") + "." + tableName;
         }
 
-        public IDbConnection CreateConnection(string connectionString)
+        public override IDbConnection CreateConnection(string? connectionString = null)
         {
-            return new NpgsqlConnection(connectionString);
+            return new NpgsqlConnection(ConnectionString ?? connectionString);
         }
 
         public IDbConnection CreateConnection(string connectionString,
