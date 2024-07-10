@@ -59,6 +59,8 @@ namespace Imato.Dapper.DbContext
             if (!_initilized)
             {
                 RegisterTypes(GetType().Assembly);
+                RegisterTypes(Assembly.GetCallingAssembly());
+                RegisterTypes(Assembly.GetEntryAssembly());
                 RegisterTypes(Assembly.GetExecutingAssembly());
                 LoadCommands();
                 RunMigrations().Wait();

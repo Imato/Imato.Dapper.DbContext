@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Reflection.Emit;
 using Dapper;
 using System.ComponentModel.DataAnnotations.Schema;
+using static Mysqlx.Expect.Open.Types.Condition.Types;
 
 namespace Imato.Dapper.DbContext
 {
@@ -635,8 +636,18 @@ namespace Imato.Dapper.DbContext
                             AddColumnNameCache(type, p.Name, columnName);
                         }
                         return p;
-                    }
-                        ));
+                    }));
+
+            var columns = type
+                .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .ToDictionary(k => k.Name, v => v.GetCustomAttribute<ColumnAttribute>()?.Name);
+            if (columns.Any(x => x.Value != null))
+            {
+                foreach (var column in columns)
+                {
+                    AddColumnNameCache(type, column.Key, column.Value ?? column.Key);
+                }
+            }
         }
 
         private static class ProxyGenerator
