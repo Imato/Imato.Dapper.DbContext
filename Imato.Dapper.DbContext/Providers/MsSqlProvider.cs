@@ -58,19 +58,23 @@ namespace Imato.Dapper.DbContext
             return await connection.QueryAsync<string>(sql, new { tableName });
         }
 
+        private void Open(IDbConnection connection)
+        {
+            if (connection.State != ConnectionState.Open)
+            {
+                connection.Open();
+            }
+        }
+
         private SqlBulkCopy BuildSqlBulkCopy<T>(IDbConnection connection,
             string tableName,
             IDictionary<string, string> mappings,
             int bulkCopyTimeoutSeconds,
             int batchSize)
         {
-            if (connection.State != ConnectionState.Open)
-            {
-                connection.Open();
-            }
-
             var sqlConnection = (connection as SqlConnection)
                 ?? throw new ApplicationException("Wrong connection type");
+            Open(sqlConnection);
             var bulk = new SqlBulkCopy(sqlConnection);
 
             foreach (var m in mappings)
@@ -117,6 +121,7 @@ namespace Imato.Dapper.DbContext
                     if (rowCount > bulk.BatchSize)
                     {
                         logger?.LogDebug($"BulkInsert {rowCount} rows");
+                        Open(connection);
                         await bulk.WriteToServerAsync(table);
                         table.Clear();
                         rowCount = 0;
@@ -126,6 +131,7 @@ namespace Imato.Dapper.DbContext
                 if (rowCount > 0)
                 {
                     logger?.LogDebug($"BulkInsert {rowCount} rows");
+                    Open(connection);
                     await bulk.WriteToServerAsync(table);
                 }
             }

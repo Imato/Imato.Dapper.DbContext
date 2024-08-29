@@ -803,7 +803,7 @@ namespace Imato.Dapper.DbContext
         /// <param name="tableName">Table name or [Table] attribute in type T</param>
         /// <param name="columns">Table columns list</param>
         /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
-        public Task BulkInsertAsync<T>(IEnumerable<T> data,
+        public async Task BulkInsertAsync<T>(IEnumerable<T> data,
             string? tableName = null,
             IEnumerable<string>? columns = null,
             int bulkCopyTimeoutSeconds = 30,
@@ -813,7 +813,7 @@ namespace Imato.Dapper.DbContext
         {
             using (var c = Connection<T>())
             {
-                return BulkInsertAsync(c, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+                await BulkInsertAsync(c, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
             }
         }
 
@@ -827,7 +827,7 @@ namespace Imato.Dapper.DbContext
         /// <param name="columns">Table columns list</param>
         /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
 
-        public Task BulkInsertAsync<T>(IEnumerable<T> data,
+        public async Task BulkInsertAsync<T>(IEnumerable<T> data,
             string? connectionStringName,
             string? tableName,
             IEnumerable<string>? columns = null,
@@ -838,7 +838,7 @@ namespace Imato.Dapper.DbContext
         {
             using (var c = Connection(connectionStringName: connectionStringName ?? ""))
             {
-                return BulkInsertAsync(c, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+                await BulkInsertAsync(c, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
             }
         }
 
