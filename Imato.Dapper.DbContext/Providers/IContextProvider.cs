@@ -25,7 +25,7 @@ namespace Imato.Dapper.DbContext
         /// <param name="connection"></param>
         /// <param name="tableName"></param>
         /// <returns></returns>
-        Task<IEnumerable<string>> GetColumnsAsync(
+        Task<IEnumerable<TableColumn>> GetColumnsAsync(
             IDbConnection connection,
             string tableName);
 
@@ -36,7 +36,8 @@ namespace Imato.Dapper.DbContext
             int bulkCopyTimeoutSeconds = 30,
             int batchSize = 10000,
             bool skipFieldsCheck = false,
-            ILogger? logger = null);
+            ILogger? logger = null,
+            IDictionary<string, string?>? mappings = null);
 
         /// <summary>
         /// Try find table by name

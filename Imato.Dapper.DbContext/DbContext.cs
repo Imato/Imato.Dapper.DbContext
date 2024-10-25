@@ -22,7 +22,6 @@ namespace Imato.Dapper.DbContext
     public class DbContext : IDisposable, IDbContext
     {
         private readonly string? _connectionString;
-        private string _dbName = "";
         private static ConcurrentDictionary<string, IDbConnection> _connectionPool = new ConcurrentDictionary<string, IDbConnection>();
         private static SemaphoreSlim _semaphore = new SemaphoreSlim(1);
         private static bool _initilized = false;
@@ -115,7 +114,8 @@ namespace Imato.Dapper.DbContext
                 Assembly.GetExecutingAssembly().Location);
             folder = Path.Combine(folder, "Migrations");
 
-            if (!Directory.Exists(folder))
+            if (!Directory.Exists(folder)
+                || !Directory.EnumerateFiles(folder, ".sql", SearchOption.AllDirectories).Any())
                 return;
 
             var connections = ConnectionStrings()
@@ -203,31 +203,17 @@ namespace Imato.Dapper.DbContext
         {
             var cs = RequiredConnectionString(connectionName);
 
-            if (_dbName == "")
+            if (Vendor(cs) == ContextVendors.mssql)
             {
-                switch (Vendor(cs))
-                {
-                    case ContextVendors.mssql:
-                        var m = new SqlConnectionStringBuilder(cs);
-                        _dbName = m.InitialCatalog;
-                        break;
-
-                    case ContextVendors.postgres:
-                        var p = new NpgsqlConnectionStringBuilder(cs);
-                        _dbName = p.Database ?? "";
-                        break;
-
-                    case ContextVendors.mysql:
-                        var s = new MySqlConnectionStringBuilder(cs);
-                        _dbName = s.Database ?? "";
-                        break;
-                }
+                cs.PullParameter("Initial Catalog", out var result);
+                return result ?? "";
             }
 
-            return _dbName;
+            cs.PullParameter("Database", out var db);
+            return db ?? "";
         }
 
-        protected string ConnectionString(string nameOrString = "")
+        public string ConnectionString(string nameOrString = "")
         {
             var str = _connectionString
                 ?? Configuration
@@ -568,6 +554,22 @@ namespace Imato.Dapper.DbContext
             }
         }
 
+        public bool IsReadOnly(string connectionName = "")
+        {
+            try
+            {
+                using (var connection = Connection(connectionStringName: connectionName))
+                {
+                    var sql = Sql("IsReadOnly", connection);
+                    return connection.QueryFirst<bool>(sql);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         protected bool IsReady(IDbConnection? connection)
         {
             return connection != null
@@ -593,9 +595,14 @@ namespace Imato.Dapper.DbContext
             }
         }
 
-        protected IContextProvider GetVendor(IDbConnection? connection = null)
+        protected IContextProvider GetProvider(IDbConnection? connection = null)
         {
             var vendor = Vendor(connection);
+            return GetProvider(vendor);
+        }
+
+        protected IContextProvider GetProvider(ContextVendors vendor)
+        {
             return contextVendors[vendor];
         }
 
@@ -715,11 +722,11 @@ namespace Imato.Dapper.DbContext
             switch (Vendor(connection))
             {
                 case ContextVendors.mssql:
-                    sql += " table " + MsSqlExtensions.FormatTableName(table);
+                    sql += " table " + contextVendors[ContextVendors.mssql].FormatTableName(table);
                     break;
 
                 case ContextVendors.postgres:
-                    sql += " " + PostgresExtensions.FormatTableName(table) + " restart identity";
+                    sql += " " + contextVendors[ContextVendors.postgres].FormatTableName(table) + " restart identity";
                     break;
 
                 case ContextVendors.mysql:
@@ -791,8 +798,8 @@ namespace Imato.Dapper.DbContext
             bool skipFieldsCheck = false)
             where T : class
         {
-            var vendor = GetVendor(connection);
-            return vendor.BulkInsertAsync(connection, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+            var provider = GetProvider(connection);
+            return provider.BulkInsertAsync(connection, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck, Logger);
         }
 
         /// <summary>
@@ -910,7 +917,7 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="tableName"></param>
         /// <returns></returns>
-        public Task<IEnumerable<string>> GetColumnsAsync(
+        public Task<IEnumerable<TableColumn>> GetColumnsAsync(
             string tableName,
             string connectionName = "")
         {
@@ -923,7 +930,7 @@ namespace Imato.Dapper.DbContext
         /// Get columns of tableName
         /// </summary>
         /// <returns></returns>
-        public Task<IEnumerable<string>> GetColumnsAsync<T>(string connectionName = "")
+        public Task<IEnumerable<TableColumn>> GetColumnsAsync<T>(string connectionName = "")
         {
             var table = TableAttributeExtensions.RequiredValue<T>();
             return GetColumnsAsync(table, connectionName);

@@ -13,11 +13,11 @@ namespace Imato.Dapper.DbContext
         {
         }
 
-        public ContextVendors Vendor => ContextVendors.mysql;
+        public new ContextVendors Vendor => ContextVendors.mysql;
 
         public override IDbConnection CreateConnection(string? connectionString = null)
         {
-            return new MySqlConnection(ConnectionString ?? connectionString);
+            return new MySqlConnection(ConnectionString ?? AppEnvironment.GetVariables(connectionString));
         }
 
         public IDbConnection CreateConnection(string connectionString,
@@ -25,14 +25,14 @@ namespace Imato.Dapper.DbContext
             string user = "",
             string password = "")
         {
-            var mb = new MySqlConnectionStringBuilder(connectionString);
+            var mb = new MySqlConnectionStringBuilder(AppEnvironment.GetVariables(connectionString));
             mb.Database = dataBase != "" ? dataBase : mb.Database;
             mb.UserID = string.IsNullOrEmpty(mb.UserID) ? user : mb.UserID;
             mb.Password = string.IsNullOrEmpty(mb.Password) ? password : mb.Password;
             return new MySqlConnection(mb.ConnectionString);
         }
 
-        public Task BulkInsertAsync<T>(IDbConnection connection, IEnumerable<T> data, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000, bool skipFieldsCheck = false, ILogger? logger = null)
+        public Task BulkInsertAsync<T>(IDbConnection connection, IEnumerable<T> data, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000, bool skipFieldsCheck = false, ILogger? logger = null, IDictionary<string, string?>? mappings = null)
         {
             throw new NotImplementedException();
         }
@@ -42,7 +42,7 @@ namespace Imato.Dapper.DbContext
             return tableName;
         }
 
-        public Task<IEnumerable<string>> GetColumnsAsync(IDbConnection connection, string tableName)
+        public Task<IEnumerable<TableColumn>> GetColumnsAsync(IDbConnection connection, string tableName)
         {
             throw new NotImplementedException();
         }

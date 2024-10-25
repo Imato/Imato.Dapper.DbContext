@@ -8,7 +8,7 @@ using System.Collections.Concurrent;
 using System.Reflection.Emit;
 using Dapper;
 using System.ComponentModel.DataAnnotations.Schema;
-using static Mysqlx.Expect.Open.Types.Condition.Types;
+using Imato.Reflection;
 
 namespace Imato.Dapper.DbContext
 {
@@ -74,6 +74,8 @@ namespace Imato.Dapper.DbContext
                 ["fbconnection"] = new FbAdapter()
             };
 
+        private static Dictionary<string, string> emptyDic = new Dictionary<string, string>();
+
         private static List<PropertyInfo> ComputedPropertiesCache(Type type)
         {
             if (ComputedProperties.TryGetValue(type.TypeHandle, out IEnumerable<PropertyInfo> pi))
@@ -110,7 +112,7 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="type"></param>
         /// <returns></returns>
-        public static IEnumerable<string>? ColumnsOf(Type type)
+        public static IEnumerable<string> ColumnsOf(Type type)
         {
             var key = $"{type.Name}.";
             return ColumnNames
@@ -123,12 +125,31 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="type"></param>
         /// <returns></returns>
-        public static Dictionary<string, string>? MappingsOf(Type type)
+        public static Dictionary<string, string> MappingsOf<T>()
         {
+            var type = typeof(T);
+            var fields = Objects.GetFieldNames<T>(skipChildren: true)
+                .OrderBy(x => x)
+                .ToArray();
+
+            if (fields.Length == 0)
+            {
+                return emptyDic;
+            }
+
+            if (!ColumnNames.ContainsKey(ColumnKey(type, fields[0])))
+            {
+                foreach (var f in fields)
+                {
+                    ColumnNameCache(type, f);
+                }
+            }
+
             var key = $"{type.Name}.";
             return ColumnNames
                 .Where(x => x.Key.StartsWith(key))
-                ?.ToDictionary(x => x.Key.Split(".")[1], x => x.Value);
+                .OrderBy(x => x.Key)
+                .ToDictionary(x => x.Key.Split(".")[1], x => x.Value);
         }
 
         private static string ColumnNameCache(Type type, string property)

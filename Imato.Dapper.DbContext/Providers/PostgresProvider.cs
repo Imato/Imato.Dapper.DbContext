@@ -17,7 +17,7 @@ namespace Imato.Dapper.DbContext
         {
         }
 
-        public ContextVendors Vendor => ContextVendors.postgres;
+        public new ContextVendors Vendor => ContextVendors.postgres;
 
         public string FormatTableName(string tableName, string? schema = null)
         {
@@ -26,7 +26,7 @@ namespace Imato.Dapper.DbContext
 
         public override IDbConnection CreateConnection(string? connectionString = null)
         {
-            return new NpgsqlConnection(ConnectionString ?? connectionString);
+            return CreateConnection(ConnectionString ?? AppEnvironment.GetVariables(connectionString), "", "", "");
         }
 
         public IDbConnection CreateConnection(string connectionString,
@@ -34,7 +34,7 @@ namespace Imato.Dapper.DbContext
             string user = "",
             string password = "")
         {
-            var nb = new NpgsqlConnectionStringBuilder(connectionString);
+            var nb = new NpgsqlConnectionStringBuilder(AppEnvironment.GetVariables(connectionString));
             nb.Database = dataBase != "" ? dataBase : nb.Database;
             nb.Username = string.IsNullOrEmpty(nb.Username) ? user : nb.Username;
             nb.Password = string.IsNullOrEmpty(nb.Password) ? password : nb.Password;
@@ -47,15 +47,21 @@ namespace Imato.Dapper.DbContext
         {
             tableName = FormatTableName(tableName);
             var sql = $"select table_schema ||  '.' || table_name from information_schema.tables where table_schema ||  '.' || table_name = @tableName limit 1;";
-            return await connection.QuerySingleOrDefaultAsync<string>(sql, new { tableName });
+            return await connection.QuerySingleOrDefaultAsync<string>(sql, new { tableName = FormatTableName(tableName) });
         }
 
-        public Task<IEnumerable<string>> GetColumnsAsync(IDbConnection connection,
+        public async Task<IEnumerable<TableColumn>> GetColumnsAsync(IDbConnection connection,
             string tableName)
         {
             tableName = FormatTableName(tableName);
-            var sql = $"select column_name from information_schema.columns where table_schema ||  '.' || table_name = @tableName and is_generated = 'NEVER' and is_updatable = 'YES' order by 1;";
-            return connection.QueryAsync<string>(sql, new { tableName });
+            var sql = @"
+select column_name as name,
+	iif(is_updatable = 'YES', false, true) as isComputed,
+	iif(is_generated = 'ALWAYS' or column_default like 'nextval(%', true, false) as isIdentity
+from information_schema.columns
+where table_schema ||  '.' || table_name = @tableName
+order by 1;";
+            return await connection.QueryAsync<TableColumn>(sql, new { tableName });
         }
 
         public Task BulkInsertAsync<T>(IDbConnection connection,
@@ -65,7 +71,8 @@ namespace Imato.Dapper.DbContext
             int bulkCopyTimeoutSeconds = 30,
             int batchSize = 10000,
             bool skipFieldsCheck = false,
-            ILogger? logger = null)
+            ILogger? logger = null,
+            IDictionary<string, string?>? mappings = null)
         {
             var pgConnection = (connection as NpgsqlConnection)
                 ?? throw new ApplicationException("Wrong connection type");
@@ -75,54 +82,73 @@ namespace Imato.Dapper.DbContext
                 connection.Open();
             }
             tableName ??= TableAttributeExtensions.RequiredValue<T>();
-            tableName = PostgresExtensions.FormatTableName(tableName);
+            tableName = FormatTableName(tableName);
 
-            var mappings = BulkCopy.GetMappingsOf<T>(columns, tableName, skipFieldsCheck, connection);
-            logger?.LogDebug($"BulkInsert. Using mapping object -> column: {mappings.Serialize()}");
-            var properties = mappings.Keys.ToArray();
-            columns = mappings.Values.ToArray();
+            mappings ??= BulkCopy.GetMappingsOf<T>(columns, tableName, skipFieldsCheck, connection);
+            logger?.LogDebug($"BulkInsert. Using mapping object -> column: {mappings?.Serialize()}");
+            columns = mappings?.Values?.ToArray();
 
-            using (var writer = pgConnection.BeginBinaryImport($"copy {PostgresExtensions.FormatTableName(tableName)} ({string.Join(",", columns)}) from STDIN (FORMAT BINARY)"))
+            using (var writer = pgConnection.BeginBinaryImport($"copy {FormatTableName(tableName)} ({string.Join(",", columns)}) from STDIN (FORMAT BINARY)"))
             {
                 writer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeoutSeconds);
                 foreach (var d in data)
                 {
                     writer.StartRow();
-                    foreach (var p in properties)
+                    foreach (var m in mappings!)
                     {
-                        var value = Objects.GetField(d, p);
-                        if (value != null)
+                        var value = Objects.GetField(d, m.Key);
+                        try
                         {
-                            switch (value.GetType().Name)
+                            if (value != null)
                             {
-                                case nameof(DateTime):
-                                    var date = (DateTime)value;
-                                    if (date.Kind == DateTimeKind.Utc)
-                                    {
-                                        writer.Write(date, NpgsqlDbType.TimestampTz);
-                                    }
-                                    else
-                                    {
-                                        writer.Write(date, NpgsqlDbType.Timestamp);
-                                    }
-                                    break;
+                                switch (value.GetType().Name)
+                                {
+                                    case nameof(DateTime):
+                                        var date = (DateTime)value;
+                                        if (date.Kind == DateTimeKind.Utc)
+                                        {
+                                            writer.Write(date, NpgsqlDbType.TimestampTz);
+                                        }
+                                        else
+                                        {
+                                            writer.Write(date, NpgsqlDbType.Timestamp);
+                                        }
+                                        break;
 
-                                case nameof(Boolean):
-                                    writer.Write(value, NpgsqlDbType.Boolean);
-                                    break;
+                                    case nameof(Boolean):
+                                        writer.Write(value, NpgsqlDbType.Boolean);
+                                        break;
 
-                                case nameof(Int16):
-                                    writer.Write(value, NpgsqlDbType.Smallint);
-                                    break;
+                                    case nameof(Byte):
+                                    case nameof(Int16):
+                                        writer.Write(value, NpgsqlDbType.Smallint);
+                                        break;
 
-                                default:
-                                    writer.Write(value);
-                                    break;
+                                    case nameof(Int32):
+                                        writer.Write(value, NpgsqlDbType.Integer);
+                                        break;
+
+                                    case nameof(Int64):
+                                        writer.Write(value, NpgsqlDbType.Bigint);
+                                        break;
+
+                                    case nameof(String):
+                                        writer.Write(value.ToString());
+                                        break;
+
+                                    default:
+                                        writer.Write(value);
+                                        break;
+                                }
+                            }
+                            else
+                            {
+                                writer.WriteNull();
                             }
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            writer.WriteNull();
+                            throw new ApplicationException($"Cannot write value {value} type {value?.GetType()?.Name ?? "null"} to column {m.Value}", ex);
                         }
                     }
                 }
@@ -131,6 +157,16 @@ namespace Imato.Dapper.DbContext
             }
 
             return Task.CompletedTask;
+        }
+
+        public override async Task<bool> IsReadWriteConnectionAsync(IDbConnection connection)
+        {
+            try
+            {
+                return await connection.QuerySingleOrDefaultAsync<bool>("select pg_is_in_recovery() = false");
+            }
+            catch { };
+            return false;
         }
     }
 }

@@ -11,7 +11,7 @@ namespace Imato.Dapper.DbContext
 
         public BaseContextProvider(string? connectionString = null)
         {
-            ConnectionString = connectionString;
+            ConnectionString = AppEnvironment.GetVariables(connectionString);
         }
 
         public ContextVendors Vendor => ContextVendors.mssql;
@@ -30,6 +30,11 @@ namespace Imato.Dapper.DbContext
         {
             using var c = CreateConnection();
             return c.ExecuteAsync(sql: sql, commandTimeout: timeout);
+        }
+
+        public virtual Task<bool> IsReadWriteConnectionAsync(IDbConnection connection)
+        {
+            return Task.FromResult(true);
         }
     }
 }

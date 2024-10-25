@@ -1,4 +1,5 @@
 ﻿using Dapper;
+using Imato.DumyMemoryCache;
 using Imato.Reflection;
 using Microsoft.Extensions.Logging;
 using System;
@@ -12,11 +13,13 @@ namespace Imato.Dapper.DbContext
 {
     public class MsSqlProvider : BaseContextProvider, IContextProvider
     {
+        private readonly DummyMemoryCache cache = new DummyMemoryCache();
+
         public MsSqlProvider(string? connectionString = null) : base(connectionString)
         {
         }
 
-        public ContextVendors Vendor => ContextVendors.mssql;
+        public new ContextVendors Vendor => ContextVendors.mssql;
 
         public string FormatTableName(string tableName, string? schema = null)
         {
@@ -25,7 +28,8 @@ namespace Imato.Dapper.DbContext
 
         public override IDbConnection CreateConnection(string? connectionString = null)
         {
-            return new SqlConnection(ConnectionString ?? connectionString);
+            return CreateConnection(ConnectionString ?? AppEnvironment.GetVariables(connectionString),
+                "", "", "");
         }
 
         public IDbConnection CreateConnection(string connectionString,
@@ -33,11 +37,89 @@ namespace Imato.Dapper.DbContext
             string user = "",
             string password = "")
         {
-            var sb = new SqlConnectionStringBuilder(connectionString);
+            var key = connectionString;
+            var replicaState = GetReplicaState(ref connectionString);
+            var replicaStateTimeout = GetReplicaStateTimeout(ref connectionString);
+            var sb = new SqlConnectionStringBuilder(AppEnvironment.GetVariables(connectionString));
+
             sb.InitialCatalog = dataBase != "" ? dataBase : sb.InitialCatalog;
             sb.UserID = string.IsNullOrEmpty(sb.UserID) ? user : sb.UserID;
             sb.Password = string.IsNullOrEmpty(sb.Password) ? password : sb.Password;
+
+            // for two and more replica. Data Source=srvd2695,srvd6201;
+            if (sb.DataSource.Contains(","))
+            {
+                sb.ConnectionString = cache.Get(key,
+                    replicaStateTimeout,
+                    () =>
+                    {
+                        var hosts = sb.DataSource
+                            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                            .ToDictionary(k => k, v => ReplicaState.Brocken);
+                        foreach (var host in hosts.Keys)
+                        {
+                            sb.DataSource = host;
+                            hosts[host] = GetReplicaStateAsync(sb.ConnectionString).Result;
+                            if (hosts[host] == replicaState)
+                            {
+                                return sb.ConnectionString;
+                            }
+                        }
+
+                        var sameHost = hosts.Where(x => x.Value >= replicaState)?.FirstOrDefault();
+                        if (string.IsNullOrEmpty(sameHost?.Key))
+                        {
+                            throw new ApplicationException($"Cannot find replica state {replicaState} in hosts {string.Join(",", hosts.Keys)}");
+                        }
+                        sb.DataSource = sameHost?.Key;
+                        return sb.ConnectionString;
+                    });
+            }
             return new SqlConnection(sb.ConnectionString);
+        }
+
+        public ReplicaState GetReplicaState(ref string connectionString)
+        {
+            connectionString = connectionString.PullParameter("ReplicaState", out var value);
+            if (Enum.TryParse(typeof(ReplicaState), value, out var result))
+            {
+                return (ReplicaState)result;
+            }
+            return ReplicaState.ReadWrite;
+        }
+
+        public TimeSpan GetReplicaStateTimeout(ref string connectionString)
+        {
+            connectionString = connectionString.PullParameter("ReplicaStateTimeout", out var value);
+            if (int.TryParse(value, out var result))
+            {
+                return TimeSpan.FromMilliseconds(result);
+            }
+            return TimeSpan.FromMilliseconds(60_000);
+        }
+
+        private async Task<ReplicaState> GetReplicaStateAsync(string connectionString)
+        {
+            try
+            {
+                using var connection = new SqlConnection(connectionString);
+                const string sql = @"
+select top 1 e.value
+	from sys.database_files f
+		left join sys.extended_properties
+			e on e.name = 'ReadOnly' and e.class = 0
+";
+                var result = await connection.QuerySingleAsync<string>(sql);
+                if (result == "true")
+                    return ReplicaState.ReadOnly;
+                if (result == "false")
+                    return ReplicaState.ReadWrite;
+            }
+            catch
+            {
+                return ReplicaState.Brocken;
+            }
+            return ReplicaState.ReadWrite;
         }
 
         public async Task<string?> FindTableAsync(
@@ -49,13 +131,17 @@ namespace Imato.Dapper.DbContext
             return await connection.QuerySingleOrDefaultAsync<string>(sql, new { tableName });
         }
 
-        public async Task<IEnumerable<string>> GetColumnsAsync(
+        public async Task<IEnumerable<TableColumn>> GetColumnsAsync(
             IDbConnection connection,
             string tableName)
         {
             tableName = FormatTableName(tableName);
-            var sql = $"select name from sys.columns c where c.object_id = object_id(@tableName) and c.is_computed = 0 order by 1;";
-            return await connection.QueryAsync<string>(sql, new { tableName });
+            var sql = @"
+select name, is_computed as isComputed, c.is_identity as isIdentity
+from sys.columns c
+where c.object_id = object_id(@tableName)
+order by 1;";
+            return await connection.QueryAsync<TableColumn>(sql, new { tableName });
         }
 
         private void Open(IDbConnection connection)
@@ -99,11 +185,12 @@ namespace Imato.Dapper.DbContext
             int bulkCopyTimeoutSeconds = 30,
             int batchSize = 10000,
             bool skipFieldsCheck = false,
-            ILogger? logger = null)
+            ILogger? logger = null,
+            IDictionary<string, string?>? mappings = null)
         {
             var rowCount = 0;
             tableName ??= TableAttributeExtensions.RequiredValue<T>();
-            var mappings = BulkCopy.GetMappingsOf<T>(columns, tableName, skipFieldsCheck, connection);
+            mappings ??= BulkCopy.GetMappingsOf<T>(columns, tableName, skipFieldsCheck, connection);
             logger?.LogDebug($"BulkInsert. Using mapping object -> column: {mappings.Serialize()}");
 
             using (var bulk = BuildSqlBulkCopy<T>(connection, tableName, mappings, bulkCopyTimeoutSeconds, batchSize))
@@ -157,6 +244,16 @@ namespace Imato.Dapper.DbContext
                 row[v.Key] = v.Value;
             }
             return row;
+        }
+
+        public override async Task<bool> IsReadWriteConnectionAsync(IDbConnection connection)
+        {
+            try
+            {
+                return await connection.QuerySingleOrDefaultAsync<bool>("select cast(1 as bit) as result");
+            }
+            catch { };
+            return false;
         }
     }
 }

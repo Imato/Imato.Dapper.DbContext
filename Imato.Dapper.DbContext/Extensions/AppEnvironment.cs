@@ -2,7 +2,7 @@
 using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace Imato.Dapper.DbContext
+namespace Imato
 {
     public static class AppEnvironment
     {
@@ -26,7 +26,7 @@ namespace Imato.Dapper.DbContext
         /// <param name="str">Same string {VARIABLE_NAME}</param>
         /// <returns></returns>
         /// <exception cref="ApplicationException"></exception>
-        public static string GetVariables(string str)
+        public static string? GetVariables(string? str)
         {
             if (string.IsNullOrEmpty(str))
                 return str;

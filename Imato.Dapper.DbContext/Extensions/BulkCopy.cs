@@ -13,13 +13,14 @@ namespace Imato.Dapper.DbContext
     public static class BulkCopy
     {
         private static ConcurrentDictionary<string, Dictionary<string, string>> _mappings = new ConcurrentDictionary<string, Dictionary<string, string>>();
+        private static PostgresProvider postgresProvider = new PostgresProvider();
+        private static MsSqlProvider msSqlProvider = new MsSqlProvider();
 
         /// <summary>
         /// Mapping field of T to table column
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="columns">table columns</param>
-        /// <param name="tableName"></param>
         /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
         /// <returns></returns>
         public static IDictionary<string, string?> GetMappingsOf<T>
@@ -33,33 +34,39 @@ namespace Imato.Dapper.DbContext
             Dictionary<string, string>? mappings;
 
             tableName ??= TableAttributeExtensions.RequiredValue<T>();
-            var fields = Objects.GetFieldNames<T>().ToArray();
 
             if (!_mappings.TryGetValue(typeKey, out mappings))
             {
-                mappings = SqlMapperExtensions.MappingsOf(typeof(T))
-                    ?? new Dictionary<string, string>();
+                mappings = SqlMapperExtensions.MappingsOf<T>();
 
-                if (mappings.Count == 0 && !skipFieldsCheck)
+                var tableColumns = !skipFieldsCheck && connection != null ?
+                    GetColumnsAsync(connection, tableName).Result
+                        .Where(x => !x.IsIdentity && !x.IsComputed)
+                        .Select(x => x.Name)
+                        .ToDictionary(x => x.ToUpper())
+                    : null;
+
+                foreach (var k in mappings.Keys)
                 {
-                    var cals = columns;
-                    cals ??= connection != null ? GetColumnsAsync(connection, tableName).Result : Enumerable.Empty<string>();
-                    var tableColumns = cals.ToDictionary(x => x.ToUpper());
-                    foreach (var f in fields)
+                    if (tableColumns != null
+                        && mappings.ContainsKey(k)
+                        && !tableColumns.ContainsKey(mappings[k].ToUpper()))
                     {
-                        if (tableColumns.ContainsKey(f.ToUpper()))
-                        {
-                            mappings.Add(f, tableColumns[f.ToUpper()]);
-                        }
+                        mappings.Remove(k);
                     }
-                }
-
-                if (mappings.Count == 0)
-                {
-                    var cs = columns?.ToArray() ?? fields;
-                    for (int i = 0; i < cs.Length; i++)
+                    if (columns != null
+                        && mappings.ContainsKey(k)
+                        && columns.Any()
+                        && !columns.Any(x => string.Equals(x, mappings[k], StringComparison.OrdinalIgnoreCase)))
                     {
-                        mappings.Add(fields[i], cs[i]);
+                        mappings.Remove(k);
+                    }
+                    if (tableColumns != null
+                        && mappings.ContainsKey(k)
+                        && tableColumns.ContainsKey(mappings[k].ToUpper())
+                        && mappings[k] != tableColumns[mappings[k].ToUpper()])
+                    {
+                        mappings[k] = tableColumns[mappings[k].ToUpper()];
                     }
                 }
 
@@ -69,7 +76,7 @@ namespace Imato.Dapper.DbContext
                 }
                 else
                 {
-                    throw new ApplicationException($"Cannot generate mappings for table {tableName} with columns {string.Join(",", columns)} and type {typeof(T).Name}");
+                    throw new ApplicationException($"Cannot generate mappings for table {tableName} with columns {(columns == null ? "null" : string.Join(",", columns))} and type {typeof(T).Name}");
                 }
             }
 
@@ -92,36 +99,37 @@ namespace Imato.Dapper.DbContext
             IEnumerable<string>? columns = null,
             int bulkCopyTimeoutSeconds = 30,
             int batchSize = 1_000,
-            bool skipFieldsCheck = false)
+            bool skipFieldsCheck = false,
+            IDictionary<string, string?>? mappings = null)
         {
             var ns = connection as NpgsqlConnection;
             if (ns != null)
             {
-                return PostgresExtensions.BulkInsertAsync(ns, data, tableName, columns, skipFieldsCheck);
+                return postgresProvider.BulkInsertAsync(ns, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck, null, mappings);
             }
 
             var ms = connection as SqlConnection;
             if (ms != null)
             {
-                return MsSqlExtensions.BulkInsertAsync(ms, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck);
+                return msSqlProvider.BulkInsertAsync(ms, data, tableName, columns, bulkCopyTimeoutSeconds, batchSize, skipFieldsCheck, null, mappings);
             }
 
             throw new NotImplementedException();
         }
 
-        public static async Task<IEnumerable<string>> GetColumnsAsync(this IDbConnection connection,
+        public static async Task<IEnumerable<TableColumn>> GetColumnsAsync(this IDbConnection connection,
             string tableName)
         {
             var ns = connection as NpgsqlConnection;
             if (ns != null)
             {
-                return await PostgresExtensions.GetColumnsAsync(ns, tableName);
+                return await postgresProvider.GetColumnsAsync(ns, tableName);
             }
 
             var ms = connection as SqlConnection;
             if (ms != null)
             {
-                return await MsSqlExtensions.GetColumnsAsync(ms, tableName);
+                return await msSqlProvider.GetColumnsAsync(ms, tableName);
             }
 
             throw new NotImplementedException();

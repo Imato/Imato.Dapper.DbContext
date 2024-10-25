@@ -212,7 +212,7 @@ namespace Imato.Dapper.DbContext.Test
 
             result = BulkCopy.GetMappingsOf<TestClassCase2>();
             Assert.That(string.Join(",", result.Keys), Is.EqualTo("Date,Id,Meta,Name"));
-            Assert.That(string.Join(",", result.Values), Is.EqualTo("Date,Id,Meta,Name"));
+            Assert.That(string.Join(",", result.Values), Is.EqualTo("Date,Id,meta_tags,Name"));
 
             var columns = "name,value";
             result = BulkCopy.GetMappingsOf<TestClassCase3>(columns.Split(","), connection: context.Connection("mssql"));

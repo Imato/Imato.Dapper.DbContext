@@ -91,6 +91,8 @@ namespace Imato.Dapper.DbContext
 
         bool IsDbActive(string connectionName = "");
 
+        bool IsReadOnly(string connectionName = "");
+
         bool IsMasterServer(string connectionName = "");
 
         /// <summary>
@@ -158,14 +160,14 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="tableName"></param>
         /// <returns></returns>
-        Task<IEnumerable<string>> GetColumnsAsync(
+        Task<IEnumerable<TableColumn>> GetColumnsAsync(
             string tableName,
             string connectionName = "");
 
         /// <summary>
         /// Get columns of tableName
         /// </summary>
-        Task<IEnumerable<string>> GetColumnsAsync<T>(string connectionName = "");
+        Task<IEnumerable<TableColumn>> GetColumnsAsync<T>(string connectionName = "");
 
         /// <summary>
         /// Find table in all connections by name
