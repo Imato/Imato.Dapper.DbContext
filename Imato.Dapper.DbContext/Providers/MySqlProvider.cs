@@ -20,16 +20,21 @@ namespace Imato.Dapper.DbContext
             return new MySqlConnection(ConnectionString ?? AppEnvironment.GetVariables(connectionString));
         }
 
+        public string CreateConnectionString(string connectionString, string dataBase = "", string user = "", string password = "")
+        {
+            var mb = new MySqlConnectionStringBuilder(AppEnvironment.GetVariables(connectionString));
+            mb.Database = !string.IsNullOrEmpty(dataBase) ? dataBase : mb.Database;
+            mb.UserID = !string.IsNullOrEmpty(user) ? user : mb.UserID;
+            mb.Password = !string.IsNullOrEmpty(password) ? password : mb.Password;
+            return mb.ConnectionString;
+        }
+
         public IDbConnection CreateConnection(string connectionString,
             string dataBase = "",
             string user = "",
             string password = "")
         {
-            var mb = new MySqlConnectionStringBuilder(AppEnvironment.GetVariables(connectionString));
-            mb.Database = dataBase != "" ? dataBase : mb.Database;
-            mb.UserID = string.IsNullOrEmpty(mb.UserID) ? user : mb.UserID;
-            mb.Password = string.IsNullOrEmpty(mb.Password) ? password : mb.Password;
-            return new MySqlConnection(mb.ConnectionString);
+            return new MySqlConnection(CreateConnectionString(connectionString, dataBase, user, password));
         }
 
         public Task BulkInsertAsync<T>(IDbConnection connection, IEnumerable<T> data, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000, bool skipFieldsCheck = false, ILogger? logger = null, IDictionary<string, string?>? mappings = null)

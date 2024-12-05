@@ -45,15 +45,15 @@ namespace Imato.Dapper.DbContext.Test.Providers
 
             var connection = context.Connection("sqlcluster");
             var result = await connection.QuerySingleAsync<string>(sql);
-            Assert.That(result, Is.EqualTo("SRVD2695"));
+            Assert.That(result, Is.EqualTo("SRVD6201"));
 
             connection = context.Connection("sqlcluster_read");
             result = await connection.QuerySingleAsync<string>(sql);
-            Assert.That(result, Is.EqualTo("SRVD6201"));
+            Assert.That(result, Is.EqualTo("SRVK4087"));
 
             connection = context.Connection("sqlcluster_write");
             result = await connection.QuerySingleAsync<string>(sql);
-            Assert.That(result, Is.EqualTo("SRVD2695"));
+            Assert.That(result, Is.EqualTo("SRVD6201"));
 
             connection.Dispose();
         }

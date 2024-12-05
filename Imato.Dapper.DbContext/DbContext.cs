@@ -2,14 +2,11 @@
 using Imato.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using MySql.Data.MySqlClient;
-using Npgsql;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Data;
-using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -30,7 +27,7 @@ namespace Imato.Dapper.DbContext
         protected readonly IConfiguration? Configuration;
         protected static List<ContextCommand> ContextCommands = new List<ContextCommand>();
 
-        private static Dictionary<ContextVendors, IContextProvider> contextVendors =
+        private static Dictionary<ContextVendors, IContextProvider> contextProviders =
             new IContextProvider[]
             {
                 new MsSqlProvider(),
@@ -39,7 +36,7 @@ namespace Imato.Dapper.DbContext
             }.ToDictionary(x => x.Vendor);
 
         public DbContext(
-            IConfiguration? configuration = null,
+            IConfiguration? configuration,
             ILogger<DbContext>? logger = null,
             string? connectionString = null)
         {
@@ -215,14 +212,18 @@ namespace Imato.Dapper.DbContext
 
         public string ConnectionString(string nameOrString = "")
         {
-            var str = _connectionString
+            var str = !string.IsNullOrEmpty(nameOrString) ?
+                (Configuration
+                    ?.GetSection("ConnectionStrings")
+                    ?.GetChildren()
+                    ?.FirstOrDefault(x => x.Key.Equals(nameOrString, StringComparison.InvariantCultureIgnoreCase))
+                    ?.Value ?? nameOrString)
+                : _connectionString
                 ?? Configuration
                     ?.GetSection("ConnectionStrings")
                     ?.GetChildren()
-                    ?.FirstOrDefault(x => string.IsNullOrEmpty(nameOrString)
-                        || x.Key.Equals(nameOrString, StringComparison.InvariantCultureIgnoreCase))
-                    ?.Value
-                ?? nameOrString;
+                    ?.FirstOrDefault()
+                    ?.Value;
 
             return AppEnvironment.GetVariables(str);
         }
@@ -293,18 +294,30 @@ namespace Imato.Dapper.DbContext
             throw new InvalidOperationException($"Unknown context vendor for string: {connectionString}");
         }
 
+        public static string GetConnectionString(string connectionString,
+           string dataBase = "",
+           string user = "",
+           string password = "")
+        {
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                throw new ArgumentNullException(nameof(connectionString));
+            }
+            var vendor = contextProviders[Vendor(connectionString)];
+            return vendor.CreateConnectionString(connectionString, dataBase, user, password);
+        }
+
         public static IDbConnection GetConnection(string connectionString,
-           string dataBase,
-           string user,
-           string password)
+           string dataBase = "",
+           string user = "",
+           string password = "")
         {
             if (string.IsNullOrEmpty(connectionString))
             {
                 throw new ArgumentNullException(nameof(connectionString));
             }
 
-            connectionString = AppEnvironment.GetVariables(connectionString);
-            var vendor = contextVendors[Vendor(connectionString)];
+            var vendor = contextProviders[Vendor(connectionString)];
             return vendor.CreateConnection(connectionString, dataBase, user, password);
         }
 
@@ -603,7 +616,7 @@ namespace Imato.Dapper.DbContext
 
         protected IContextProvider GetProvider(ContextVendors vendor)
         {
-            return contextVendors[vendor];
+            return contextProviders[vendor];
         }
 
         protected T Try<T>(Func<T> func,
@@ -722,11 +735,11 @@ namespace Imato.Dapper.DbContext
             switch (Vendor(connection))
             {
                 case ContextVendors.mssql:
-                    sql += " table " + contextVendors[ContextVendors.mssql].FormatTableName(table);
+                    sql += " table " + contextProviders[ContextVendors.mssql].FormatTableName(table);
                     break;
 
                 case ContextVendors.postgres:
-                    sql += " " + contextVendors[ContextVendors.postgres].FormatTableName(table) + " restart identity";
+                    sql += " " + contextProviders[ContextVendors.postgres].FormatTableName(table) + " restart identity";
                     break;
 
                 case ContextVendors.mysql:
@@ -900,7 +913,7 @@ namespace Imato.Dapper.DbContext
         {
             foreach (var c in ConnectionStrings())
             {
-                var vendor = contextVendors[c.Vendor];
+                var vendor = contextProviders[c.Vendor];
                 var connection = vendor.CreateConnection(c.String);
                 var tableName = await vendor.FindTableAsync(connection, name);
                 if (tableName != null)
@@ -923,7 +936,7 @@ namespace Imato.Dapper.DbContext
         {
             var connection = Connection(connectionName);
             var vendor = Vendor(connection);
-            return contextVendors[vendor].GetColumnsAsync(connection, tableName);
+            return contextProviders[vendor].GetColumnsAsync(connection, tableName);
         }
 
         /// <summary>

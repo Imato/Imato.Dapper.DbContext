@@ -32,19 +32,19 @@ namespace Imato.Dapper.DbContext
                 "", "", "");
         }
 
-        public IDbConnection CreateConnection(string connectionString,
+        public string CreateConnectionString(string connectionString,
             string dataBase = "",
             string user = "",
             string password = "")
         {
-            var key = connectionString;
+            var key = $"{connectionString};{dataBase};{user};{password}";
             var replicaState = GetReplicaState(ref connectionString);
             var replicaStateTimeout = GetReplicaStateTimeout(ref connectionString);
             var sb = new SqlConnectionStringBuilder(AppEnvironment.GetVariables(connectionString));
 
-            sb.InitialCatalog = dataBase != "" ? dataBase : sb.InitialCatalog;
-            sb.UserID = string.IsNullOrEmpty(sb.UserID) ? user : sb.UserID;
-            sb.Password = string.IsNullOrEmpty(sb.Password) ? password : sb.Password;
+            sb.InitialCatalog = !string.IsNullOrEmpty(dataBase) ? dataBase : sb.InitialCatalog;
+            sb.UserID = !string.IsNullOrEmpty(user) ? user : sb.UserID;
+            sb.Password = !string.IsNullOrEmpty(password) ? password : sb.Password;
 
             // for two and more replica. Data Source=srvd2695,srvd6201;
             if (sb.DataSource.Contains(","))
@@ -75,7 +75,15 @@ namespace Imato.Dapper.DbContext
                         return sb.ConnectionString;
                     });
             }
-            return new SqlConnection(sb.ConnectionString);
+            return sb.ConnectionString;
+        }
+
+        public IDbConnection CreateConnection(string connectionString,
+            string dataBase = "",
+            string user = "",
+            string password = "")
+        {
+            return new SqlConnection(CreateConnectionString(connectionString, dataBase, user, password));
         }
 
         public ReplicaState GetReplicaState(ref string connectionString)

@@ -26,7 +26,7 @@ namespace Imato
         /// <param name="str">Same string {VARIABLE_NAME}</param>
         /// <returns></returns>
         /// <exception cref="ApplicationException"></exception>
-        public static string? GetVariables(string? str)
+        public static string GetVariables(string str)
         {
             if (string.IsNullOrEmpty(str))
                 return str;

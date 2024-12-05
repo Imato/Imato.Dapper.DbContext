@@ -12,6 +12,11 @@ namespace Imato.Dapper.DbContext
 
         IDbConnection CreateConnection(string? connectionString = null);
 
+        string CreateConnectionString(string connectionString,
+            string dataBase = "",
+            string user = "",
+            string password = "");
+
         IDbConnection CreateConnection(string connectionString,
             string dataBase = "",
             string user = "",

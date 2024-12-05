@@ -29,16 +29,24 @@ namespace Imato.Dapper.DbContext
             return CreateConnection(ConnectionString ?? AppEnvironment.GetVariables(connectionString), "", "", "");
         }
 
-        public IDbConnection CreateConnection(string connectionString,
+        public string CreateConnectionString(string connectionString,
             string dataBase = "",
             string user = "",
             string password = "")
         {
             var nb = new NpgsqlConnectionStringBuilder(AppEnvironment.GetVariables(connectionString));
-            nb.Database = dataBase != "" ? dataBase : nb.Database;
-            nb.Username = string.IsNullOrEmpty(nb.Username) ? user : nb.Username;
-            nb.Password = string.IsNullOrEmpty(nb.Password) ? password : nb.Password;
-            return new NpgsqlConnection(nb.ConnectionString);
+            nb.Database = !string.IsNullOrEmpty(dataBase) ? dataBase : nb.Database;
+            nb.Username = !string.IsNullOrEmpty(user) ? user : nb.Username;
+            nb.Password = !string.IsNullOrEmpty(password) ? password : nb.Password;
+            return nb.ConnectionString;
+        }
+
+        public IDbConnection CreateConnection(string connectionString,
+            string dataBase = "",
+            string user = "",
+            string password = "")
+        {
+            return new NpgsqlConnection(CreateConnectionString(connectionString, dataBase, user, password));
         }
 
         public async Task<string?> FindTableAsync(
