@@ -1,13 +1,13 @@
-﻿using Dapper;
-using Imato.Reflection;
-using Microsoft.Extensions.Logging;
-using Npgsql;
-using NpgsqlTypes;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
+using Dapper;
+using Imato.Reflection;
+using Microsoft.Extensions.Logging;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace Imato.Dapper.DbContext
 {
@@ -65,7 +65,7 @@ namespace Imato.Dapper.DbContext
             var sql = @"
 select column_name as name,
 	iif(is_updatable = 'YES', false, true) as isComputed,
-	iif(is_generated = 'ALWAYS' or column_default like 'nextval(%', true, false) as isIdentity
+	iif(is_generated = 'ALWAYS' or identity_generation = 'ALWAYS' or column_default like 'nextval(%', true, false) as isIdentity
 from information_schema.columns
 where table_schema ||  '.' || table_name = @tableName
 order by 1;";
@@ -173,7 +173,8 @@ order by 1;";
             {
                 return await connection.QuerySingleOrDefaultAsync<bool>("select pg_is_in_recovery() = false");
             }
-            catch { };
+            catch { }
+            ;
             return false;
         }
     }

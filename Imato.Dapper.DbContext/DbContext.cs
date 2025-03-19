@@ -1,8 +1,4 @@
-﻿using Dapper;
-using Imato.Reflection;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -13,6 +9,10 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Dapper;
+using Imato.Reflection;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Imato.Dapper.DbContext
 {
@@ -198,7 +198,7 @@ namespace Imato.Dapper.DbContext
 
         public string DbName(string connectionName = "")
         {
-            var cs = RequiredConnectionString(connectionName);
+            var cs = ConnectionString(connectionName);
 
             if (Vendor(cs) == ContextVendors.mssql)
             {
@@ -212,8 +212,8 @@ namespace Imato.Dapper.DbContext
 
         public string ConnectionString(string nameOrString = "")
         {
-            var str = !string.IsNullOrEmpty(nameOrString) ?
-                (Configuration
+            var str = !string.IsNullOrEmpty(nameOrString)
+                ? (Configuration
                     ?.GetSection("ConnectionStrings")
                     ?.GetChildren()
                     ?.FirstOrDefault(x => x.Key.Equals(nameOrString, StringComparison.InvariantCultureIgnoreCase))
@@ -230,8 +230,17 @@ namespace Imato.Dapper.DbContext
 
         protected string RequiredConnectionString(string nameOrString = "")
         {
-            return ConnectionString(nameOrString)
+            var str =
+                (!string.IsNullOrEmpty(nameOrString)
+                    ? Configuration
+                        ?.GetSection("ConnectionStrings")
+                        ?.GetChildren()
+                        ?.FirstOrDefault(x => x.Key.Equals(nameOrString, StringComparison.InvariantCultureIgnoreCase))
+                        ?.Value
+                    : _connectionString)
                 ?? throw new ArgumentException($"Not exists ConnectionStrings {nameOrString} in app configuration");
+
+            return AppEnvironment.GetVariables(str);
         }
 
         protected IEnumerable<ConnectionString> ConnectionStrings()
@@ -267,7 +276,7 @@ namespace Imato.Dapper.DbContext
 
         protected ContextVendors Vendor(IDbConnection? connection)
         {
-            return Vendor(connection?.ConnectionString ?? RequiredConnectionString());
+            return Vendor(connection?.ConnectionString ?? ConnectionString());
         }
 
         protected static ContextVendors Vendor(string connectionString)
@@ -374,7 +383,7 @@ namespace Imato.Dapper.DbContext
                 return _connectionPool[connectionName];
             }
 
-            var connectionString = RequiredConnectionString(connectionStringName);
+            var connectionString = ConnectionString(connectionStringName);
             var connection = Connection(connectionString, dbName);
 
             if (!string.IsNullOrEmpty(connectionName))
@@ -407,7 +416,7 @@ namespace Imato.Dapper.DbContext
 
         public ContextCommand Command(string name)
         {
-            var vendor = Vendor(RequiredConnectionString());
+            var vendor = Vendor(ConnectionString());
             return ContextCommands
                 .Where(x => x.Name == name && x.ContextVendor == vendor)
                 .FirstOrDefault();
@@ -517,11 +526,8 @@ namespace Imato.Dapper.DbContext
         }
 
         // <summary>
-        /// Format sql text and execute
-        /// </summary>
-        /// <param name="command">Command name from config or SQL</param>
-        /// <param name="parameters">sql paramaters</param>
-        /// <returns></returns>
+        /// Format sql text and execute </summary> <param name="command">Command name from config or
+        /// SQL</param> <param name="parameters">sql paramaters</param> <returns></returns>
         public async Task ExecuteAsync(string command,
             object parameters,
             string connectionStringName = "")
@@ -591,7 +597,6 @@ namespace Imato.Dapper.DbContext
         }
 
         /// <summary>
-        ///
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="command">Command name from config or SQL</param>
@@ -643,7 +648,6 @@ namespace Imato.Dapper.DbContext
         }
 
         /// <summary>
-        ///
         /// </summary>
         /// <param name="command">Command name from config or SQL</param>
         /// <param name="parameters"></param>
@@ -660,7 +664,6 @@ namespace Imato.Dapper.DbContext
         }
 
         /// <summary>
-        ///
         /// </summary>
         /// <param name="command">Command name from config or SQL</param>
         /// <param name="parameters"></param>
@@ -724,7 +727,8 @@ namespace Imato.Dapper.DbContext
             if (await c.UpdateAsync(value, logger: Logger))
             {
                 return;
-            };
+            }
+            ;
             await c.InsertAsync(value, logger: Logger);
         }
 
@@ -822,7 +826,9 @@ namespace Imato.Dapper.DbContext
         /// <param name="data"></param>
         /// <param name="tableName">Table name or [Table] attribute in type T</param>
         /// <param name="columns">Table columns list</param>
-        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
+        /// <param name="skipFieldsCheck">
+        /// Don`t find columns from list in type T, use all fields in T
+        /// </param>
         public async Task BulkInsertAsync<T>(IEnumerable<T> data,
             string? tableName = null,
             IEnumerable<string>? columns = null,
@@ -838,14 +844,15 @@ namespace Imato.Dapper.DbContext
         }
 
         /// <summary>
-        ///
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="data"></param>
         /// <param name="connectionStringName"></param>
         /// <param name="tableName">Table name or [Table] attribute in type T</param>
         /// <param name="columns">Table columns list</param>
-        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
+        /// <param name="skipFieldsCheck">
+        /// Don`t find columns from list in type T, use all fields in T
+        /// </param>
 
         public async Task BulkInsertAsync<T>(IEnumerable<T> data,
             string? connectionStringName,
