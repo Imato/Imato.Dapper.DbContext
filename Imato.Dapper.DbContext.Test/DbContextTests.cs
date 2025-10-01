@@ -1,6 +1,6 @@
+﻿using System.Data;
 using Imato.Reflection;
 using Microsoft.Extensions.Configuration;
-using System.Data;
 
 namespace Imato.Dapper.DbContext.Test
 {
@@ -34,8 +34,16 @@ namespace Imato.Dapper.DbContext.Test
         public void ConnectionStringTest()
         {
             var method = AppBulder.GetMethod<DbContext>("ConnectionString");
-            var result = method?.Invoke(context, new object[] { "postgres" });
+            var result = method?.Invoke(context, ["postgres"]);
             Assert.That(result.ToString().Contains("Host=localhost"));
+        }
+
+        [Test]
+        public void ConnectionStringTest2()
+        {
+            var method = AppBulder.GetMethod<DbContext>("ConnectionString");
+            var result = method?.Invoke(context, [null]);
+            Assert.That(result.ToString().Contains("Data Source=localhost;"));
         }
 
         [Test]
@@ -48,6 +56,13 @@ namespace Imato.Dapper.DbContext.Test
             Assert.That(result.ConnectionString.Contains("User"));
             Assert.That(result.ConnectionString.Contains("Password"));
             Assert.That(result.ConnectionString.Contains("Host"));
+        }
+
+        [Test]
+        public void ConnectionTest2()
+        {
+            var result = context.Connection();
+            Assert.That(result.ConnectionString.Contains("Data Source=localhost;"));
         }
 
         [Test]

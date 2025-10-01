@@ -17,7 +17,9 @@ namespace Imato.Dapper.DbContext
         /// <param name="data"></param>
         /// <param name="tableName">Table name or [Table] attribute in type T</param>
         /// <param name="columns">Table columns list</param>
-        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
+        /// <param name="skipFieldsCheck">
+        /// Don`t find columns from list in type T, use all fields in T
+        /// </param>
         Task BulkInsertAsync<T>(IEnumerable<T> values, string? tableName = null, IEnumerable<string>? columns = null, int bulkCopyTimeoutSeconds = 30, int batchSize = 10000, bool skipFieldsCheck = false) where T : class;
 
         /// <summary>
@@ -28,7 +30,9 @@ namespace Imato.Dapper.DbContext
         /// <param name="connectionStringName"></param>
         /// <param name="tableName">Table name or [Table] attribute in type T</param>
         /// <param name="columns">Table columns list</param>
-        /// <param name="skipFieldsCheck">Don`t find columns from list in type T, use all fields in T</param>
+        /// <param name="skipFieldsCheck">
+        /// Don`t find columns from list in type T, use all fields in T
+        /// </param>
         Task BulkInsertAsync<T>(IEnumerable<T> data,
             string connectionStringName,
             string tableName,
@@ -60,7 +64,6 @@ namespace Imato.Dapper.DbContext
         void Dispose();
 
         /// <summary>
-        ///
         /// </summary>
         /// <param name="command">Command name from config or SQL</param>
         /// <param name="formatParameters"></param>
@@ -69,13 +72,12 @@ namespace Imato.Dapper.DbContext
         Task ExecuteAsync(string command, object[]? formatParameters = null, string connectionStringName = "");
 
         /// <summary>
-        ///
         /// </summary>
         /// <param name="command">Command name from config or SQL</param>
         /// <param name="parameters"></param>
         /// <param name="connectionStringName"></param>
         /// <returns></returns>
-        Task ExecuteAsync(string command, object? parameters = null, string connectionStringName = "");
+        Task ExecuteAsync(string command, object parameters, string connectionStringName = "");
 
         Task<IEnumerable<T>> GetAllAsync<T>() where T : class;
 
@@ -96,26 +98,22 @@ namespace Imato.Dapper.DbContext
         bool IsMasterServer(string connectionName = "");
 
         /// <summary>
-        ///
         /// </summary>
         /// <param name="command">Command name from config or SQL</param>
         Task<IEnumerable<dynamic>> QueryAsync(string command, object parameters);
 
         /// <summary>
-        ///
         /// </summary>
         /// <param name="command">Command name from config or SQL</param>
         Task<IEnumerable<T>> QueryAsync<T>(string command, object parameters);
 
         /// <summary>
-        ///
         /// </summary>
         /// <param name="command">Command name from config or SQL</param>
 
         Task<IEnumerable<T>> QueryAsync<T>(string commandName, object[]? formatParameters = null);
 
         /// <summary>
-        ///
         /// </summary>
         /// <param name="command">Command name from config or SQL</param>
         Task<T> QueryFirstAsync<T>(string command, object? parameters = null);
@@ -142,7 +140,7 @@ namespace Imato.Dapper.DbContext
         string TableNameOf<T>();
 
         /// <summary>
-        /// DB of class T  from attribute
+        /// DB of class T from attribute
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
@@ -192,5 +190,19 @@ namespace Imato.Dapper.DbContext
         /// </summary>
         /// <param name="assembly">assembly with DB types</param>
         void RegisterTypes(Assembly assembly);
+
+        /// <summary>
+        /// Check connection in config file
+        /// </summary>
+        /// <param name="connectionStringName"></param>
+        /// <returns></returns>
+        bool ConnectionExist(string connectionStringName);
+
+        /// <summary>
+        /// Get current context or connection vendor
+        /// </summary>
+        /// <param name="connection"></param>
+        /// <returns></returns>
+        public ContextVendors Vendor(IDbConnection? connection = null);
     }
 }

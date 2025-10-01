@@ -228,6 +228,18 @@ namespace Imato.Dapper.DbContext
             return AppEnvironment.GetVariables(str);
         }
 
+        public bool ConnectionExist(string connectionStringName)
+        {
+            var str = !string.IsNullOrEmpty(connectionStringName)
+                ? Configuration
+                    ?.GetSection("ConnectionStrings")
+                    ?.GetChildren()
+                    ?.FirstOrDefault(x => x.Key.Equals(connectionStringName, StringComparison.InvariantCultureIgnoreCase))
+                    ?.Value
+                : null;
+            return str != null;
+        }
+
         protected string RequiredConnectionString(string nameOrString = "")
         {
             var str =
@@ -274,7 +286,7 @@ namespace Imato.Dapper.DbContext
             });
         }
 
-        protected ContextVendors Vendor(IDbConnection? connection)
+        public ContextVendors Vendor(IDbConnection? connection = null)
         {
             return Vendor(connection?.ConnectionString ?? ConnectionString());
         }

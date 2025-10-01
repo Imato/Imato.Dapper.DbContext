@@ -8,7 +8,6 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
 using Dapper;
-using Imato.Reflection;
 
 namespace Imato.Dapper.DbContext
 {
@@ -53,13 +52,13 @@ namespace Imato.Dapper.DbContext
         /// <param name="type">The <see cref="Type"/> to get a table name for.</param>
         public delegate string TableNameMapperDelegate(Type type);
 
-        private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> KeyProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>();
-        private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> ExplicitKeyProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>();
-        private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> TypeProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>();
-        private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> ComputedProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>();
-        private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> GetQueries = new ConcurrentDictionary<RuntimeTypeHandle, string>();
-        private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> TypeTableName = new ConcurrentDictionary<RuntimeTypeHandle, string>();
-        private static readonly ConcurrentDictionary<string, string> ColumnNames = new ConcurrentDictionary<string, string>();
+        private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> KeyProperties = new();
+        private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> ExplicitKeyProperties = new();
+        private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> TypeProperties = new();
+        private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> ComputedProperties = new();
+        private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> GetQueries = new();
+        private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> TypeTableName = new();
+        private static readonly ConcurrentDictionary<string, Dictionary<string, string>> ColumnNames = new();
 
         private static readonly ISqlAdapter DefaultAdapter = new SqlServerAdapter();
 
@@ -102,11 +101,6 @@ namespace Imato.Dapper.DbContext
             return explicitKeyProperties;
         }
 
-        private static string ColumnKey(Type type, string property)
-        {
-            return $"{type.Name}.{property}";
-        }
-
         /// <summary>
         /// Columns list of type in DB table
         /// </summary>
@@ -115,9 +109,11 @@ namespace Imato.Dapper.DbContext
         public static IEnumerable<string> ColumnsOf(Type type)
         {
             var key = $"{type.Name}.";
-            return ColumnNames
-                .Where(x => x.Key.StartsWith(key))
-                .Select(x => x.Value);
+            if (ColumnNames.TryGetValue(type.Name, out var map))
+            {
+                return map.Values;
+            }
+            return Array.Empty<string>();
         }
 
         /// <summary>
@@ -125,57 +121,45 @@ namespace Imato.Dapper.DbContext
         public static Dictionary<string, string> MappingsOf<T>()
         {
             var type = typeof(T);
-            var fields = Objects.GetFieldNames<T>(skipChildren: true)
-                .OrderBy(x => x)
-                .ToArray();
-
-            if (fields.Length == 0)
+            if (ColumnNames.TryGetValue(type.Name, out var map))
             {
-                return emptyDic;
+                return map;
             }
-
-            if (!ColumnNames.ContainsKey(ColumnKey(type, fields[0])))
-            {
-                foreach (var f in fields)
-                {
-                    ColumnNameCache(type, f);
-                }
-            }
-
-            var key = $"{type.Name}.";
-            return ColumnNames
-                .Where(x => x.Key.StartsWith(key))
-                .OrderBy(x => x.Key)
-                .ToDictionary(x => x.Key.Split(".")[1], x => x.Value);
+            map = GetMappingsOf(type);
+            ColumnNames.TryAdd(type.Name, map);
+            return map;
         }
 
         private static string ColumnNameCache(Type type, string property)
         {
-            var key = ColumnKey(type, property);
-            var value = property;
-
-            if (ColumnNames.TryGetValue(key, out value))
+            if (ColumnNames.TryGetValue(type.Name, out var map)
+                && map.TryGetValue(property, out var value))
             {
                 return value;
             }
 
-            value = type
-                .GetProperties(BindingFlags.Instance | BindingFlags.Public)
-                .Where(x => x.Name == property)
-                .FirstOrDefault()
-                ?.GetCustomAttribute<ColumnAttribute>()
-                ?.Name ?? property;
-
-            ColumnNames[key] = value;
-            return value;
+            map = GetMappingsOf(type);
+            ColumnNames.TryAdd(type.Name, map);
+            if (map.TryGetValue(property, out value))
+            {
+                return value;
+            }
+            throw new ApplicationException($"Unknown property {property} of {type.FullName}");
         }
 
         private static void AddColumnNameCache(Type type,
             string property,
             string column)
         {
-            var key = ColumnKey(type, property);
-            ColumnNames[key] = column;
+            if (!ColumnNames.TryGetValue(type.Name, out var map))
+            {
+                map = new();
+                ColumnNames.TryAdd(type.Name, map);
+            }
+            if (!map.ContainsKey(property))
+            {
+                map.TryAdd(property, column);
+            }
         }
 
         private static List<PropertyInfo> KeyPropertiesCache(Type type)
@@ -657,16 +641,19 @@ namespace Imato.Dapper.DbContext
                         return p;
                     }));
 
-            var columns = type
-                .GetProperties(BindingFlags.Instance | BindingFlags.Public)
-                .ToDictionary(k => k.Name, v => v.GetCustomAttribute<ColumnAttribute>()?.Name);
-            if (columns.Any(x => x.Value != null))
+            foreach (var column in GetMappingsOf(type))
             {
-                foreach (var column in columns)
-                {
-                    AddColumnNameCache(type, column.Key, column.Value ?? column.Key);
-                }
+                AddColumnNameCache(type, column.Key, column.Value);
             }
+        }
+
+        private static Dictionary<string, string> GetMappingsOf(Type type)
+        {
+            return
+                type
+                .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Where(x => x.CanWrite && x.CanRead)
+                .ToDictionary(k => k.Name, v => v.GetCustomAttribute<ColumnAttribute>()?.Name ?? v.Name);
         }
 
         private static class ProxyGenerator
